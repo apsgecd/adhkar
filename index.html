@@ -1258,21 +1258,172 @@ window.addEventListener('appinstalled', () => {
 });
 
 /* ================= TELEMETRY (once per session, runs last) ================= */
+/* ================= TELEMETRY (persistent ID, runs last) ================= */
 const TELEMETRY_URL = "https://script.google.com/macros/s/AKfycbxXOgLEtYhaKzyMpWb-k_FJFJIuUWXVy7VoaOpE8vWnU_jQ9bvZsKO_nCdigZKsyGD62A/exec";
 
-function getSessionDeviceId() {
-    let id = sessionStorage.getItem("deviceId");
+function makeUuid() {
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
+        const r = Math.random() * 16 | 0;
+        return (c === "x" ? r : (r & 0x3 | 0x8)).toString(16);
+    });
+}
+
+// Persistent: survives reloads and new sessions. Only lost if user clears site data.
+function getDeviceId() {
+    let id = localStorage.getItem("deviceId");
     if (!id) {
-        id = (window.crypto && crypto.randomUUID)
-            ? crypto.randomUUID()
-            : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
-                const r = Math.random() * 16 | 0;
-                return (c === "x" ? r : (r & 0x3 | 0x8)).toString(16);
-              });
-        sessionStorage.setItem("deviceId", id);
+        id = makeUuid();
+        localStorage.setItem("deviceId", id);
     }
     return id;
 }
+
+// FNV-1a hash, used to turn stable traits into a short fingerprint
+function fnv1a(str) {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < str.length; i++) {
+        h ^= str.charCodeAt(i);
+        h = Math.imul(h, 0x01000193);
+    }
+    return (h >>> 0).toString(16).padStart(8, "0");
+}
+
+function getFingerprint() {
+    return fnv1a([
+        navigator.userAgent,
+        screen.width, screen.height, screen.colorDepth,
+        window.devicePixelRatio,
+        Intl.DateTimeFormat().resolvedOptions().timeZone,
+        navigator.language,
+        navigator.hardwareConcurrency,
+        navigator.deviceMemory,
+        navigator.maxTouchPoints
+    ].join("|"));
+}
+
+// iPhone: user agent never shows the model, so map screen size (CSS px) to model families
+const IPHONE_SCREENS = {
+    "320x568": "SE 1st gen / 5s",
+    "375x667": "6 / 6s / 7 / 8 / SE 2 / SE 3",
+    "414x736": "6+ / 6s+ / 7+ / 8+",
+    "375x812": "X / XS / 11 Pro / 12 mini / 13 mini",
+    "390x844": "12 / 12 Pro / 13 / 13 Pro / 14 / 16e",
+    "428x926": "12 Pro Max / 13 Pro Max / 14 Plus",
+    "393x852": "14 Pro / 15 / 15 Pro / 16",
+    "430x932": "14 Pro Max / 15 Plus / 15 Pro Max / 16 Plus",
+    "402x874": "16 Pro / 17",
+    "440x956": "16 Pro Max / 17 Pro Max",
+    "420x912": "Air"
+};
+
+function getBrowser(ua) {
+    const rules = [
+        [/EdgiOS\/([\d.]+)/, "Edge iOS"],
+        [/EdgA?\/([\d.]+)/, "Edge"],
+        [/CriOS\/([\d.]+)/, "Chrome iOS"],
+        [/FxiOS\/([\d.]+)/, "Firefox iOS"],
+        [/OPR\/([\d.]+)|OPiOS\/([\d.]+)/, "Opera"],
+        [/SamsungBrowser\/([\d.]+)/, "Samsung Internet"],
+        [/Firefox\/([\d.]+)/, "Firefox"],
+        [/Chrome\/([\d.]+)/, "Chrome"],
+        [/Version\/([\d.]+).*Safari/, "Safari"]
+    ];
+    for (const [re, name] of rules) {
+        const m = ua.match(re);
+        if (m) return `${name} ${(m[1] || m[2] || "").split(".")[0]}`.trim();
+    }
+    return "Unknown";
+}
+
+async function getDeviceInfo() {
+    const ua = navigator.userAgent;
+    const w = Math.min(screen.width, screen.height);
+    const h = Math.max(screen.width, screen.height);
+    const dpr = window.devicePixelRatio || 1;
+    const screenKey = `${w}x${h}`;
+
+    const info = {
+        os: "Unknown",
+        osVersion: "",
+        model: "",
+        browser: getBrowser(ua),
+        screen: `${screenKey}@${dpr}x`,
+        mode: (navigator.standalone === true || matchMedia("(display-mode: standalone)").matches)
+            ? "home-screen app" : "browser"
+    };
+
+    if (/iPhone|iPad|iPod/.test(ua)) {
+        const v = ua.match(/OS (\d+)[_.](\d+)/);
+        info.os = "iOS";
+        info.osVersion = v ? `${v[1]}.${v[2]}` : "";
+        if (/iPad/.test(ua)) {
+            info.model = "iPad";
+        } else {
+            let cand = IPHONE_SCREENS[screenKey];
+            if (screenKey === "414x896") cand = dpr === 2 ? "XR / 11" : "XS Max / 11 Pro Max";
+            info.model = cand ? `iPhone ${cand}` : "iPhone (unknown screen)";
+        }
+    } else if (/Android/.test(ua)) {
+        const v = ua.match(/Android ([\d.]+)/);
+        info.os = "Android";
+        info.osVersion = v ? v[1] : "";
+        const m = ua.match(/Android[^;]*;\s*([^;)]*?)\s*(?:Build|\))/);
+        info.model = m && m[1] ? m[1].trim() : "Android";
+    } else if (/Windows/.test(ua)) {
+        info.os = "Windows";
+    } else if (/Macintosh/.test(ua)) {
+        info.os = "macOS";
+    } else if (/Linux/.test(ua)) {
+        info.os = "Linux";
+    }
+
+    // Chromium-only: exact model and platform version (e.g. Samsung SM-S918B)
+    if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
+        try {
+            const hints = await navigator.userAgentData.getHighEntropyValues(["model", "platformVersion"]);
+            if (hints.model) info.model = hints.model;
+            if (hints.platformVersion && info.os === "Android") info.osVersion = hints.platformVersion;
+        } catch (e) { /* ignore */ }
+    }
+
+    if (!info.model) info.model = navigator.platform || "Unknown";
+    return info;
+}
+
+async function sendTelemetry() {
+    try {
+        const info = await getDeviceInfo();
+        const params = new URLSearchParams({
+            timestamp: new Date().toISOString(),
+            deviceid: getDeviceId(),
+            devicemodal: info.model,
+            os: info.os,
+            osversion: info.osVersion,
+            browser: info.browser,
+            screen: info.screen,
+            mode: info.mode,
+            fp: getFingerprint()
+        });
+        fetch(`${TELEMETRY_URL}?${params.toString()}`, { mode: "no-cors", keepalive: true })
+            .catch(() => {});
+    } catch (e) {
+        /* telemetry must never break the app */
+    }
+}
+
+/* ================= STARTUP ================= */
+loadTrack(0);
+updateHijriDisplay();
+
+// Wait for full page load, fetch prayer times, then send telemetry last.
+const pageReady = document.readyState === "complete"
+    ? Promise.resolve()
+    : new Promise(resolve => window.addEventListener("load", resolve, { once: true }));
+
+pageReady
+    .then(() => loadPrayerTimes(true))
+    .finally(() => setTimeout(sendTelemetry, 0));
 
 function getDeviceModel() {
     const ua = navigator.userAgent;
