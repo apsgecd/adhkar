@@ -699,4 +699,569 @@ function updateHijriDisplay() {
 }
 
 /* ================= LOCATION ================= */
-function getLocation()
+function getLocation() {
+    return new Promise((resolve, reject) => {
+        if (!navigator.geolocation) {
+            return reject(new Error("Geolocation not supported"));
+        }
+        navigator.geolocation.getCurrentPosition(
+            pos => {
+                const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+                localStorage.setItem("lastLocation", JSON.stringify(loc));
+                resolve(loc);
+            },
+            () => {
+                const saved = localStorage.getItem("lastLocation");
+                if (saved) resolve(JSON.parse(saved));
+                else reject(new Error("Location permission denied"));
+            },
+            { enableHighAccuracy: false, timeout: 10000, maximumAge: 600000 }
+        );
+    });
+}
+
+/* ================= PRAYER TIMES ================= */
+let prayerMethod = localStorage.getItem("prayerMethod") || "";
+let prayerMethodName = localStorage.getItem("prayerMethodName") || "";
+
+const PRAYER_LABELS = {
+    imsak: "Imsak", fajr: "Fajr", sunrise: "Sunrise",
+    dhuhr: "Dhuhr", asr: "Asr", maghrib: "Maghrib", isha: "Isha"
+};
+const PRAYER_ORDER = ["fajr", "sunrise", "dhuhr", "asr", "maghrib", "isha"];
+
+function updateMethodLabel(fallbackId) {
+    const label = prayerMethodName || fallbackId || "Default";
+    document.getElementById("methodCurrent").innerText = `Method: ${label}`;
+}
+
+function renderPrayerTimes(json) {
+    const d = json.data || {};
+    const t = d.prayer_times || {};
+    const status = d.current_status || {};
+    const next = status.next_prayer;
+
+    const info = next
+        ? `<p class="method-current">Next: ${PRAYER_LABELS[next] || next} in ${status.time_until_next || ""}</p>`
+        : "";
+
+    const rows = PRAYER_ORDER
+        .filter(k => t[k])
+        .map(k => {
+            const style = k === next ? ' style="color:#007bff"' : "";
+            return `<div class="prayer-row"${style}><span>${PRAYER_LABELS[k]}</span><b>${t[k]}</b></div>`;
+        })
+        .join("");
+
+    document.getElementById("prayerBody").innerHTML = (info + rows) || "No prayer times found.";
+    updateMethodLabel(d.calculation_method);
+}
+
+async function loadPrayerTimes(silent = false) {
+    const body = document.getElementById("prayerBody");
+    if (!silent) body.innerText = "⏳ Getting location...";
+    try {
+        const loc = await getLocation();
+        if (!silent) body.innerText = "⏳ Loading prayer times...";
+        const params = { lat: loc.lat, lng: loc.lng };
+        if (prayerMethod) params.method = prayerMethod;
+        const json = await apiGet("/prayer-times", params);
+        renderPrayerTimes(json);
+    } catch (err) {
+        if (!silent) body.innerText = `Failed: ${err.message}`;
+    }
+}
+
+async function openMethodModal() {
+    openModal("methodModal");
+    const list = document.getElementById("methodList");
+    list.innerText = "Loading methods...";
+    try {
+        const json = await apiGet("/prayer-methods");
+        const methods = (json.data && json.data.methods) || {};
+        const entries = Object.entries(methods);
+        list.innerHTML = "";
+        if (!entries.length) {
+            list.innerText = "No methods found.";
+            return;
+        }
+        entries.forEach(([id, m]) => {
+            const name = m.name || id;
+
+            const b = document.createElement("button");
+            b.className = "method-item" + (id === prayerMethod ? " active" : "");
+
+            const title = document.createElement("div");
+            title.style.fontWeight = "bold";
+            title.textContent = name;
+
+            const desc = document.createElement("small");
+            desc.textContent = m.description || "";
+
+            b.append(title, desc);
+            b.addEventListener("click", () => {
+                prayerMethod = id;
+                prayerMethodName = name;
+                localStorage.setItem("prayerMethod", prayerMethod);
+                localStorage.setItem("prayerMethodName", prayerMethodName);
+                closeModal("methodModal");
+                loadPrayerTimes();
+            });
+            list.appendChild(b);
+        });
+    } catch (err) {
+        list.innerText = `Failed: ${err.message}`;
+    }
+}
+
+document.getElementById("prayerBtn").addEventListener("click", () => {
+    openModal("prayerModal");
+    loadPrayerTimes();
+});
+document.getElementById("refreshPrayerBtn").addEventListener("click", () => {
+    haptic("short");
+    loadPrayerTimes();
+});
+document.getElementById("selectMethodBtn").addEventListener("click", () => {
+    haptic("short");
+    openMethodModal();
+});
+
+/* ================= HADITH ================= */
+function extractHadith(json) {
+    const d = json.data || json;
+    const fields = ["arabic", "text", "hadith", "english", "translation"];
+    const parts = fields.map(f => d[f]).filter(v => typeof v === "string" && v.trim());
+    if (!parts.length) return JSON.stringify(json, null, 2);
+    const source = d.source || d.reference || d.book;
+    return parts.join("\n\n") + (source ? `\n\n— ${source}` : "");
+}
+
+async function loadHadith() {
+    const body = document.getElementById("hadithBody");
+    body.innerText = "⏳ Loading...";
+    try {
+        const json = await apiGet("/hadith/random");
+        body.innerText = extractHadith(json);
+    } catch (err) {
+        body.innerText = `Failed: ${err.message}`;
+    }
+}
+
+document.getElementById("hadithBtn").addEventListener("click", () => {
+    openModal("hadithModal");
+    loadHadith();
+});
+document.getElementById("newHadithBtn").addEventListener("click", () => {
+    haptic("short");
+    loadHadith();
+});
+
+/* ================= FONTS, SIZE, THEME (saved in browser) ================= */
+const fontList = [
+    { name: "Segoe UI", css: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif" },
+    { name: "Traditional Arabic", css: "'Traditional Arabic', 'Times New Roman', serif" },
+    { name: "Arial", css: "Arial, 'Simplified Arabic', sans-serif" },
+    { name: "Cairo", css: "'Cairo', 'Segoe UI', Tahoma, sans-serif" },
+    { name: "Tajawal", css: "'Tajawal', Arial, sans-serif" },
+    { name: "Noto Naskh Arabic", css: "'Noto Naskh Arabic', 'Times New Roman', serif" },
+    { name: "Noto Sans Arabic", css: "'Noto Sans Arabic', Arial, sans-serif" },
+    { name: "Amiri", css: "'Amiri', serif" },
+    { name: "IBM Plex Sans Arabic", css: "'IBM Plex Sans Arabic', sans-serif" },
+    { name: "Scheherazade New", css: "'Scheherazade New', 'Amiri', serif" },
+    { name: "Lateef", css: "'Lateef', 'Amiri', serif" },
+    { name: "Reem Kufi", css: "'Reem Kufi', sans-serif" },
+    { name: "Lalezar", css: "'Lalezar', sans-serif" },
+    { name: "Harmattan", css: "'Harmattan', 'Amiri', sans-serif" },
+    { name: "Markazi Text", css: "'Markazi Text', serif" },
+    { name: "El Messiri", css: "'El Messiri', sans-serif" },
+    { name: "Mada", css: "'Mada', sans-serif" },
+    { name: "Vazirmatn", css: "'Vazirmatn', sans-serif" }
+];
+
+const MIN_FONT_SIZE = 14;
+const MAX_FONT_SIZE = 40;
+
+let fontIndex = parseInt(localStorage.getItem("savedFontIndex") || "0", 10);
+if (isNaN(fontIndex) || fontIndex < 0 || fontIndex >= fontList.length) fontIndex = 0;
+
+let fontSize = parseInt(localStorage.getItem("savedFontSize") || "22", 10);
+if (isNaN(fontSize)) fontSize = 22;
+
+let isDarkTheme = localStorage.getItem("savedDarkTheme") === "1";
+
+const textTarget = document.getElementById("textBody");
+const textModalEl = document.getElementById("textModal");
+
+function applyFont() {
+    textTarget.style.setProperty("font-family", fontList[fontIndex].css, "important");
+    textTarget.style.setProperty("font-size", fontSize + "px", "important");
+}
+
+function applyTheme() {
+    textModalEl.classList.toggle("dark-mode-view", isDarkTheme);
+}
+
+applyFont();
+applyTheme();
+
+document.getElementById("changeFontBtn").addEventListener("click", () => {
+    fontIndex = (fontIndex + 1) % fontList.length;
+    localStorage.setItem("savedFontIndex", fontIndex);
+    applyFont();
+    haptic("short");
+    showPopup(`🔤 ${fontList[fontIndex].name}`);
+});
+
+function changeSize(delta) {
+    fontSize = Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, fontSize + delta));
+    localStorage.setItem("savedFontSize", fontSize);
+    applyFont();
+    haptic("short");
+    showPopup(`Size: ${fontSize}px`);
+}
+
+document.getElementById("sizeDownBtn").addEventListener("click", () => changeSize(-2));
+document.getElementById("sizeUpBtn").addEventListener("click", () => changeSize(2));
+
+document.getElementById("invertColorsBtn").addEventListener("click", () => {
+    isDarkTheme = !isDarkTheme;
+    localStorage.setItem("savedDarkTheme", isDarkTheme ? "1" : "0");
+    applyTheme();
+    haptic("short");
+});
+
+/* ================= MODALS ================= */
+function openModal(id) {
+    document.getElementById(id).style.display = "block";
+}
+
+function closeModal(id) {
+    document.getElementById(id).style.display = "none";
+}
+
+/* ================= AUDIO ================= */
+const audio = document.getElementById("audioPlayer");
+const audioSource = document.getElementById("audioSource");
+const audioTimeDisplay = document.getElementById("audioTimeDisplay");
+
+const btn = document.getElementById("toggleBtn");
+const counterBtn = document.getElementById("counterBtn");
+const resetBtn = document.getElementById("resetBtn");
+const backBtn = document.getElementById("backBtn");
+const forwardBtn = document.getElementById("forwardBtn");
+
+const audioFiles = ["haddad.mp3", "names-of-Allah.mp3", "yaseen.mp3", "kahf.mp3"];
+let currentAudioIndex = 0;
+
+const txtFiles = ["yaseen.txt", "kahf.txt", "99names.txt", "haddad.txt", "salam-rasool.txt"];
+let currentTxtIndex = 0;
+
+const pdfFiles = [
+    "pdf/Asmaul-Badar.pdf",
+    "pdf/Dua.pdf",
+    "pdf/Khatham-Quran-Dua.pdf",
+    "pdf/Manqoos-Mouleed.pdf",
+    "pdf/Mayyith-Prayer.pdf"
+];
+let currentPdfIndex = 0;
+
+const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+
+let count = parseInt(localStorage.getItem("zikrCount") || "0", 10);
+counterBtn.innerText = count;
+
+function formatTime(seconds) {
+    if (isNaN(seconds) || seconds < 0 || !isFinite(seconds)) return "00:00";
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins < 10 ? '0' : ''}${mins}:${secs < 10 ? '0' : ''}${secs}`;
+}
+
+function updateAudioTime() {
+    const trackName = audioFiles[currentAudioIndex].replace('.mp3', '');
+    audioTimeDisplay.innerText = `🔊 ${trackName} | ${formatTime(audio.currentTime)} / ${formatTime(audio.duration)}`;
+}
+
+audio.addEventListener("timeupdate", updateAudioTime);
+audio.addEventListener("loadedmetadata", updateAudioTime);
+
+function loadTrack(index) {
+    currentAudioIndex = index;
+    const filename = audioFiles[currentAudioIndex];
+    const trackName = filename.replace('.mp3', '');
+
+    document.title = "🔊 " + trackName.charAt(0).toUpperCase() + trackName.slice(1);
+
+    audio.pause();
+    audioSource.src = filename;
+    audio.load();
+    btn.innerText = "▶";
+    audioTimeDisplay.innerText = `${trackName} | 00:00 / 00:00`;
+}
+
+document.getElementById("prevAudioBtn").addEventListener("click", () => {
+    loadTrack(currentAudioIndex - 1 < 0 ? audioFiles.length - 1 : currentAudioIndex - 1);
+});
+
+document.getElementById("nextAudioBtn").addEventListener("click", () => {
+    loadTrack(currentAudioIndex + 1 >= audioFiles.length ? 0 : currentAudioIndex + 1);
+});
+
+btn.addEventListener("click", () => {
+    if (audio.paused) {
+        audio.play().catch(() => showPopup("Tap again to allow audio"));
+        btn.innerText = "⏸";
+    } else {
+        audio.pause();
+        btn.innerText = "▶";
+    }
+});
+
+backBtn.addEventListener("click", () => {
+    audio.currentTime = Math.max(0, audio.currentTime - 5);
+});
+
+forwardBtn.addEventListener("click", () => {
+    if (!isFinite(audio.duration)) return;
+    audio.currentTime = Math.min(audio.duration, audio.currentTime + 5);
+});
+
+/* ================= TEXT VIEWER ================= */
+function loadTxtFile(index) {
+    currentTxtIndex = index;
+    const currentFile = txtFiles[currentTxtIndex];
+    document.getElementById("txtFileName").innerText = currentFile;
+
+    fetch(currentFile)
+        .then(res => {
+            if (!res.ok) throw new Error(`HTTP Status error ${res.status}`);
+            return res.text();
+        })
+        .then(text => {
+            textTarget.innerText = text;
+        })
+        .catch(() => {
+            textTarget.innerText = `Failed to load file: ${currentFile}\nVerify file availability at local root directory context.`;
+        });
+}
+
+document.getElementById("prevTxtBtn").addEventListener("click", () => {
+    loadTxtFile(currentTxtIndex - 1 < 0 ? txtFiles.length - 1 : currentTxtIndex - 1);
+});
+
+document.getElementById("nextTxtBtn").addEventListener("click", () => {
+    loadTxtFile(currentTxtIndex + 1 >= txtFiles.length ? 0 : currentTxtIndex + 1);
+});
+
+document.getElementById("textViewerBtn").addEventListener("click", () => {
+    openModal("textModal");
+    loadTxtFile(currentTxtIndex);
+});
+
+/* ================= PDF VIEWER (PDF.js, scrollable) ================= */
+if (window.pdfjsLib) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+}
+
+let pdfRenderToken = 0;
+
+async function loadPdfFile(index) {
+    currentPdfIndex = index;
+    const file = pdfFiles[currentPdfIndex];
+    document.getElementById("pdfFileName").innerText = file.replace('pdf/', '');
+
+    const container = document.getElementById("pdfPages");
+    container.scrollTop = 0;
+    container.innerHTML = '<div class="pdf-msg">⏳ Loading PDF...</div>';
+
+    const token = ++pdfRenderToken;
+
+    if (!window.pdfjsLib) {
+        container.innerHTML = `<div class="pdf-msg">PDF engine failed to load. Check internet connection.</div>`;
+        return;
+    }
+
+    try {
+        const doc = await pdfjsLib.getDocument(file).promise;
+        if (token !== pdfRenderToken) return;
+
+        container.innerHTML = "";
+        const dpr = window.devicePixelRatio || 1;
+        const targetWidth = Math.max(200, container.clientWidth - 16);
+
+        for (let n = 1; n <= doc.numPages; n++) {
+            const page = await doc.getPage(n);
+            if (token !== pdfRenderToken) return;
+
+            const base = page.getViewport({ scale: 1 });
+            const scale = (targetWidth * dpr) / base.width;
+            const vp = page.getViewport({ scale });
+
+            const canvas = document.createElement("canvas");
+            canvas.width = Math.floor(vp.width);
+            canvas.height = Math.floor(vp.height);
+
+            await page.render({ canvasContext: canvas.getContext("2d"), viewport: vp }).promise;
+            if (token !== pdfRenderToken) return;
+
+            container.appendChild(canvas);
+        }
+    } catch (err) {
+        if (token === pdfRenderToken) {
+            container.innerHTML = `<div class="pdf-msg">Failed to load PDF: ${file}<br>${err.message}</div>`;
+        }
+    }
+}
+
+document.getElementById("prevPdfBtn").addEventListener("click", () => {
+    loadPdfFile(currentPdfIndex - 1 < 0 ? pdfFiles.length - 1 : currentPdfIndex - 1);
+});
+
+document.getElementById("nextPdfBtn").addEventListener("click", () => {
+    loadPdfFile(currentPdfIndex + 1 >= pdfFiles.length ? 0 : currentPdfIndex + 1);
+});
+
+document.getElementById("pdfViewerBtn").addEventListener("click", () => {
+    openModal("pdfModal");
+    loadPdfFile(currentPdfIndex);
+});
+
+/* ================= ABOUT / INFO + SHARE ================= */
+document.getElementById("infoBtn").addEventListener("click", async () => {
+    openModal("logsModal");
+    const logContainer = document.getElementById("logsBody");
+    logContainer.innerText = "Querying environment descriptors...";
+
+    let logs = `Designed by : <h1><b>Jaleel1618</b></h1> ☺<br><br>[System Parameters]<br>Timestamp: ${new Date().toISOString()}<br>Platform OS Target: ${navigator.platform}<br>IOS Device Flag: ${isIOS}<br>ServiceWorker Active: ${'serviceWorker' in navigator && !!navigator.serviceWorker.controller}<br><br>`;
+
+    if ('caches' in window) {
+        logs += `[Cache Storage Subsystem]<br>`;
+        const keys = await caches.keys();
+        if (keys.length === 0) {
+            logs += "No active local cache stores mapped.<br>Tip: Refresh the page once to trigger ServiceWorker caching.<br>";
+        }
+        for (let key of keys) {
+            logs += `Cache Target Name: "${key}"<br>`;
+            const openedCache = await caches.open(key);
+            const requests = await openedCache.keys();
+            requests.forEach(req => {
+                const urlParts = req.url.split('/');
+                const filename = urlParts[urlParts.length - 1] || urlParts[urlParts.length - 2] || req.url;
+                logs += `&nbsp;&nbsp;-> Cached: ${filename}<br>`;
+            });
+        }
+    } else {
+        logs += `<br>[Cache Storage Subsystem]<br>Not supported in environment context.<br>`;
+    }
+
+    logContainer.innerHTML = logs;
+});
+
+document.getElementById("shareAppBtn").addEventListener("click", async () => {
+    haptic("short");
+    const shareData = {
+        title: "أذكار",
+        text: "أذكار: Adhkar, Duas, Quran, Hadith & Prayer Times",
+        url: location.href
+    };
+    try {
+        if (navigator.share) {
+            await navigator.share(shareData);
+        } else {
+            await navigator.clipboard.writeText(location.href);
+            showPopup("🔗 Link copied");
+        }
+    } catch (err) {
+        if (err.name !== "AbortError") showPopup("Share failed");
+    }
+});
+
+/* ================= HAPTICS ================= */
+function haptic(type) {
+    if (isIOS) {
+        const clickShort = document.getElementById("clickShort");
+        const clickLong = document.getElementById("clickLong");
+
+        if (type === "short") {
+            clickShort.currentTime = 0;
+            clickShort.play().catch(() => {});
+        }
+        if (type === "long") {
+            clickLong.currentTime = 0;
+            clickLong.play().catch(() => {});
+        }
+        if (type === "double") {
+            clickLong.currentTime = 0;
+            clickLong.play().catch(() => {});
+            setTimeout(() => {
+                clickLong.currentTime = 0;
+                clickLong.play().catch(() => {});
+            }, 200);
+        }
+    } else if (navigator.vibrate) {
+        if (type === "short") navigator.vibrate(40);
+        if (type === "long") navigator.vibrate(250);
+        if (type === "double") navigator.vibrate([200, 150, 200]);
+    }
+}
+
+/* ================= COUNTER / INSTALL ================= */
+let deferredPrompt;
+
+window.addEventListener('beforeinstallprompt', (e) => {
+    deferredPrompt = e;
+    counterBtn.innerText = "✨ Install App";
+    counterBtn.style.background = "#28a745";
+    counterBtn.style.color = "white";
+});
+
+counterBtn.addEventListener("click", async () => {
+    if (deferredPrompt) {
+        deferredPrompt.prompt();
+        await deferredPrompt.userChoice;
+        deferredPrompt = null;
+        counterBtn.innerText = count;
+        counterBtn.style.background = "grey";
+        counterBtn.style.color = "black";
+        return;
+    }
+
+    count++;
+    counterBtn.innerText = count;
+    localStorage.setItem("zikrCount", count);
+
+    if (count % 33 === 0) {
+        haptic("double");
+    } else if (count % 11 === 0) {
+        haptic("long");
+    } else {
+        haptic("short");
+    }
+});
+
+resetBtn.addEventListener("click", () => {
+    if (confirm("Reset the counter?")) {
+        count = 0;
+        counterBtn.innerText = 0;
+        localStorage.setItem("zikrCount", 0);
+        haptic("double");
+    }
+});
+
+window.addEventListener('appinstalled', () => {
+    deferredPrompt = null;
+    counterBtn.innerText = count;
+    counterBtn.style.background = "grey";
+    counterBtn.style.color = "black";
+});
+
+/* ================= STARTUP ================= */
+loadTrack(0);
+updateHijriDisplay();
+loadPrayerTimes(true);
+</script>
+
+</body>
+</html>
