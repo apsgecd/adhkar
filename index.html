@@ -1257,7 +1257,6 @@ window.addEventListener('appinstalled', () => {
     counterBtn.style.color = "black";
 });
 
-/* ================= TELEMETRY (once per session, runs last) ================= */
 /* ================= TELEMETRY (persistent ID, runs last) ================= */
 const TELEMETRY_URL = "https://script.google.com/macros/s/AKfycbxXOgLEtYhaKzyMpWb-k_FJFJIuUWXVy7VoaOpE8vWnU_jQ9bvZsKO_nCdigZKsyGD62A/exec";
 
@@ -1417,47 +1416,6 @@ loadTrack(0);
 updateHijriDisplay();
 
 // Wait for full page load, fetch prayer times, then send telemetry last.
-const pageReady = document.readyState === "complete"
-    ? Promise.resolve()
-    : new Promise(resolve => window.addEventListener("load", resolve, { once: true }));
-
-pageReady
-    .then(() => loadPrayerTimes(true))
-    .finally(() => setTimeout(sendTelemetry, 0));
-
-function getDeviceModel() {
-    const ua = navigator.userAgent;
-    if (/iPhone/.test(ua)) return "iPhone";
-    if (/iPad/.test(ua)) return "iPad";
-    if (/Android/.test(ua)) {
-        const m = ua.match(/Android[^;]*;\s*([^;)]*?)\s*(?:Build|\))/);
-        return m && m[1] ? m[1].trim() : "Android";
-    }
-    if (/Windows/.test(ua)) return "Windows PC";
-    if (/Macintosh/.test(ua)) return "Mac";
-    if (/Linux/.test(ua)) return "Linux";
-    return navigator.platform || "Unknown";
-}
-
-function sendTelemetry() {
-    try {
-        const params = new URLSearchParams({
-            timestamp: new Date().toISOString(),
-            deviceid: getSessionDeviceId(),
-            devicemodal: getDeviceModel()
-        });
-        fetch(`${TELEMETRY_URL}?${params.toString()}`, { mode: "no-cors", keepalive: true })
-            .catch(() => {});
-    } catch (e) {
-        /* telemetry must never break the app */
-    }
-}
-
-/* ================= STARTUP ================= */
-loadTrack(0);
-updateHijriDisplay();
-
-// Wait for full page load, then fetch prayer times, then send telemetry last.
 const pageReady = document.readyState === "complete"
     ? Promise.resolve()
     : new Promise(resolve => window.addEventListener("load", resolve, { once: true }));
