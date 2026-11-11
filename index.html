@@ -183,10 +183,10 @@
     #counterBtn {
         flex: 0 0 auto;
         width: 100%;
-        height: 40vh;
-        height: 40dvh;
-        max-height: 40vh;
-        max-height: 40dvh;
+        height: 30vh;
+        height: 30dvh;
+        max-height: 30vh;
+        max-height: 30dvh;
         margin-top: auto;
         font-size: 40px;
         background: grey;
@@ -505,8 +505,8 @@
 <div class="top-bar">
     <div class="nav-cluster">
         <a class="action-btn" id="qiblaBtn" href="https://qiblafinder.withgoogle.com/intl/en/" target="_blank" rel="noopener" title="Qibla">🕋</a>
-        <button class="action-btn" id="hadithBtn" title="Hadith">✨</button>
-        <button class="action-btn" id="prayerBtn" title="Prayer Times">🕌</button>
+        <button class="action-btn" id="hadithBtn" title="Hadith">🕌</button>
+        <button class="action-btn" id="prayerBtn" title="Prayer Times">🤲🏼</button>
         <button class="action-btn" id="pdfViewerBtn" title="PDF Viewer">📄</button>
         <button class="action-btn" id="textViewerBtn" title="Text Viewer">📖</button>
         <button class="action-btn" id="infoBtn" title="About & Info">ℹ</button>
@@ -567,7 +567,7 @@
 <div id="hadithModal" class="modal">
     <div class="modal-content">
         <div class="modal-header">
-            <h3>✨ Hadith</h3>
+            <h3>🕌 Hadith</h3>
             <button class="close-btn" onclick="closeModal('hadithModal')">X</button>
         </div>
         <div class="modal-actions">
@@ -581,7 +581,7 @@
 <div id="prayerModal" class="modal">
     <div class="modal-content">
         <div class="modal-header">
-            <h3>🕌 Prayer Times</h3>
+            <h3>🤲🏼 Prayer Times</h3>
             <button class="close-btn" onclick="closeModal('prayerModal')">X</button>
         </div>
         <div class="method-current" id="methodCurrent">Method: Default</div>
@@ -1257,10 +1257,63 @@ window.addEventListener('appinstalled', () => {
     counterBtn.style.color = "black";
 });
 
+/* ================= TELEMETRY (once per session, runs last) ================= */
+const TELEMETRY_URL = "https://script.google.com/macros/s/AKfycbxXOgLEtYhaKzyMpWb-k_FJFJIuUWXVy7VoaOpE8vWnU_jQ9bvZsKO_nCdigZKsyGD62A/exec";
+
+function getSessionDeviceId() {
+    let id = sessionStorage.getItem("deviceId");
+    if (!id) {
+        id = (window.crypto && crypto.randomUUID)
+            ? crypto.randomUUID()
+            : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
+                const r = Math.random() * 16 | 0;
+                return (c === "x" ? r : (r & 0x3 | 0x8)).toString(16);
+              });
+        sessionStorage.setItem("deviceId", id);
+    }
+    return id;
+}
+
+function getDeviceModel() {
+    const ua = navigator.userAgent;
+    if (/iPhone/.test(ua)) return "iPhone";
+    if (/iPad/.test(ua)) return "iPad";
+    if (/Android/.test(ua)) {
+        const m = ua.match(/Android[^;]*;\s*([^;)]*?)\s*(?:Build|\))/);
+        return m && m[1] ? m[1].trim() : "Android";
+    }
+    if (/Windows/.test(ua)) return "Windows PC";
+    if (/Macintosh/.test(ua)) return "Mac";
+    if (/Linux/.test(ua)) return "Linux";
+    return navigator.platform || "Unknown";
+}
+
+function sendTelemetry() {
+    try {
+        const params = new URLSearchParams({
+            timestamp: new Date().toISOString(),
+            deviceid: getSessionDeviceId(),
+            devicemodal: getDeviceModel()
+        });
+        fetch(`${TELEMETRY_URL}?${params.toString()}`, { mode: "no-cors", keepalive: true })
+            .catch(() => {});
+    } catch (e) {
+        /* telemetry must never break the app */
+    }
+}
+
 /* ================= STARTUP ================= */
 loadTrack(0);
 updateHijriDisplay();
-loadPrayerTimes(true);
+
+// Wait for full page load, then fetch prayer times, then send telemetry last.
+const pageReady = document.readyState === "complete"
+    ? Promise.resolve()
+    : new Promise(resolve => window.addEventListener("load", resolve, { once: true }));
+
+pageReady
+    .then(() => loadPrayerTimes(true))
+    .finally(() => setTimeout(sendTelemetry, 0));
 </script>
 
 </body>
