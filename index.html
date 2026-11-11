@@ -649,14 +649,30 @@
 </div>
 
 <script>
-/* ================= SERVICE WORKER ================= */
-if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-        navigator.serviceWorker.register('service-worker.js')
-            .then(reg => console.log('ServiceWorker registered:', reg.scope))
-            .catch(err => console.error('ServiceWorker registration failed:', err));
-    });
+/* ================= SAFE RUNNER =================
+   Each feature is wrapped so one failure cannot stop the others. */
+function safe(name, fn) {
+    try {
+        const r = fn();
+        if (r && typeof r.catch === "function") {
+            r.catch(err => console.error(`[${name}]`, err));
+        }
+        return r;
+    } catch (err) {
+        console.error(`[${name}]`, err);
+    }
 }
+
+/* ================= SERVICE WORKER ================= */
+safe("serviceWorker", () => {
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('service-worker.js')
+                .then(reg => console.log('ServiceWorker registered:', reg.scope))
+                .catch(err => console.error('ServiceWorker registration failed:', err));
+        });
+    }
+});
 
 /* ================= POPUP (replaces alert) ================= */
 let popupTimer;
@@ -674,6 +690,39 @@ function showPopup(message) {
     popupTimer = setTimeout(() => el.classList.remove("show"), 1500);
 }
 
+/* ================= HAPTICS ================= */
+const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+
+function haptic(type) {
+    try {
+        if (isIOS) {
+            const clickShort = document.getElementById("clickShort");
+            const clickLong = document.getElementById("clickLong");
+
+            if (type === "short") {
+                clickShort.currentTime = 0;
+                clickShort.play().catch(() => {});
+            }
+            if (type === "long") {
+                clickLong.currentTime = 0;
+                clickLong.play().catch(() => {});
+            }
+            if (type === "double") {
+                clickLong.currentTime = 0;
+                clickLong.play().catch(() => {});
+                setTimeout(() => {
+                    clickLong.currentTime = 0;
+                    clickLong.play().catch(() => {});
+                }, 200);
+            }
+        } else if (navigator.vibrate) {
+            if (type === "short") navigator.vibrate(40);
+            if (type === "long") navigator.vibrate(250);
+            if (type === "double") navigator.vibrate([200, 150, 200]);
+        }
+    } catch (e) { /* haptics are optional */ }
+}
+
 /* ================= API CONFIG ================= */
 const API_KEY = "umh_7df845103c420e9349889a08dd16d6563e4c0a1d";
 const API_BASE = "https://ummahapi.com/api";
@@ -684,6 +733,15 @@ async function apiGet(path, params = {}) {
     const res = await fetch(url, { headers: { "x-api-key": API_KEY } });
     if (!res.ok) throw new Error(`API ${res.status}`);
     return res.json();
+}
+
+/* ================= MODALS ================= */
+function openModal(id) {
+    document.getElementById(id).style.display = "block";
+}
+
+function closeModal(id) {
+    document.getElementById(id).style.display = "none";
 }
 
 /* ================= HIJRI DATE (device, Umm al-Qura) ================= */
@@ -814,19 +872,6 @@ async function openMethodModal() {
     }
 }
 
-document.getElementById("prayerBtn").addEventListener("click", () => {
-    openModal("prayerModal");
-    loadPrayerTimes();
-});
-document.getElementById("refreshPrayerBtn").addEventListener("click", () => {
-    haptic("short");
-    loadPrayerTimes();
-});
-document.getElementById("selectMethodBtn").addEventListener("click", () => {
-    haptic("short");
-    openMethodModal();
-});
-
 /* ================= HADITH ================= */
 function extractHadith(json) {
     const d = json.data || json;
@@ -847,15 +892,6 @@ async function loadHadith() {
         body.innerText = `Failed: ${err.message}`;
     }
 }
-
-document.getElementById("hadithBtn").addEventListener("click", () => {
-    openModal("hadithModal");
-    loadHadith();
-});
-document.getElementById("newHadithBtn").addEventListener("click", () => {
-    haptic("short");
-    loadHadith();
-});
 
 /* ================= FONTS, SIZE, THEME (saved in browser) ================= */
 const fontList = [
@@ -902,42 +938,12 @@ function applyTheme() {
     textModalEl.classList.toggle("dark-mode-view", isDarkTheme);
 }
 
-applyFont();
-applyTheme();
-
-document.getElementById("changeFontBtn").addEventListener("click", () => {
-    fontIndex = (fontIndex + 1) % fontList.length;
-    localStorage.setItem("savedFontIndex", fontIndex);
-    applyFont();
-    haptic("short");
-    showPopup(`🔤 ${fontList[fontIndex].name}`);
-});
-
 function changeSize(delta) {
     fontSize = Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, fontSize + delta));
     localStorage.setItem("savedFontSize", fontSize);
     applyFont();
     haptic("short");
     showPopup(`Size: ${fontSize}px`);
-}
-
-document.getElementById("sizeDownBtn").addEventListener("click", () => changeSize(-2));
-document.getElementById("sizeUpBtn").addEventListener("click", () => changeSize(2));
-
-document.getElementById("invertColorsBtn").addEventListener("click", () => {
-    isDarkTheme = !isDarkTheme;
-    localStorage.setItem("savedDarkTheme", isDarkTheme ? "1" : "0");
-    applyTheme();
-    haptic("short");
-});
-
-/* ================= MODALS ================= */
-function openModal(id) {
-    document.getElementById(id).style.display = "block";
-}
-
-function closeModal(id) {
-    document.getElementById(id).style.display = "none";
 }
 
 /* ================= AUDIO ================= */
@@ -966,9 +972,8 @@ const pdfFiles = [
 ];
 let currentPdfIndex = 0;
 
-const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
-
 let count = parseInt(localStorage.getItem("zikrCount") || "0", 10);
+if (isNaN(count)) count = 0;
 counterBtn.innerText = count;
 
 function formatTime(seconds) {
@@ -983,9 +988,6 @@ function updateAudioTime() {
     audioTimeDisplay.innerText = `🔊 ${trackName} | ${formatTime(audio.currentTime)} / ${formatTime(audio.duration)}`;
 }
 
-audio.addEventListener("timeupdate", updateAudioTime);
-audio.addEventListener("loadedmetadata", updateAudioTime);
-
 function loadTrack(index) {
     currentAudioIndex = index;
     const filename = audioFiles[currentAudioIndex];
@@ -999,33 +1001,6 @@ function loadTrack(index) {
     btn.innerText = "▶";
     audioTimeDisplay.innerText = `${trackName} | 00:00 / 00:00`;
 }
-
-document.getElementById("prevAudioBtn").addEventListener("click", () => {
-    loadTrack(currentAudioIndex - 1 < 0 ? audioFiles.length - 1 : currentAudioIndex - 1);
-});
-
-document.getElementById("nextAudioBtn").addEventListener("click", () => {
-    loadTrack(currentAudioIndex + 1 >= audioFiles.length ? 0 : currentAudioIndex + 1);
-});
-
-btn.addEventListener("click", () => {
-    if (audio.paused) {
-        audio.play().catch(() => showPopup("Tap again to allow audio"));
-        btn.innerText = "⏸";
-    } else {
-        audio.pause();
-        btn.innerText = "▶";
-    }
-});
-
-backBtn.addEventListener("click", () => {
-    audio.currentTime = Math.max(0, audio.currentTime - 5);
-});
-
-forwardBtn.addEventListener("click", () => {
-    if (!isFinite(audio.duration)) return;
-    audio.currentTime = Math.min(audio.duration, audio.currentTime + 5);
-});
 
 /* ================= TEXT VIEWER ================= */
 function loadTxtFile(index) {
@@ -1046,25 +1021,7 @@ function loadTxtFile(index) {
         });
 }
 
-document.getElementById("prevTxtBtn").addEventListener("click", () => {
-    loadTxtFile(currentTxtIndex - 1 < 0 ? txtFiles.length - 1 : currentTxtIndex - 1);
-});
-
-document.getElementById("nextTxtBtn").addEventListener("click", () => {
-    loadTxtFile(currentTxtIndex + 1 >= txtFiles.length ? 0 : currentTxtIndex + 1);
-});
-
-document.getElementById("textViewerBtn").addEventListener("click", () => {
-    openModal("textModal");
-    loadTxtFile(currentTxtIndex);
-});
-
 /* ================= PDF VIEWER (PDF.js, scrollable) ================= */
-if (window.pdfjsLib) {
-    pdfjsLib.GlobalWorkerOptions.workerSrc =
-        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-}
-
 let pdfRenderToken = 0;
 
 async function loadPdfFile(index) {
@@ -1115,22 +1072,8 @@ async function loadPdfFile(index) {
     }
 }
 
-document.getElementById("prevPdfBtn").addEventListener("click", () => {
-    loadPdfFile(currentPdfIndex - 1 < 0 ? pdfFiles.length - 1 : currentPdfIndex - 1);
-});
-
-document.getElementById("nextPdfBtn").addEventListener("click", () => {
-    loadPdfFile(currentPdfIndex + 1 >= pdfFiles.length ? 0 : currentPdfIndex + 1);
-});
-
-document.getElementById("pdfViewerBtn").addEventListener("click", () => {
-    openModal("pdfModal");
-    loadPdfFile(currentPdfIndex);
-});
-
-/* ================= ABOUT / INFO + SHARE ================= */
-document.getElementById("infoBtn").addEventListener("click", async () => {
-    openModal("logsModal");
+/* ================= ABOUT / INFO ================= */
+async function buildInfoLogs() {
     const logContainer = document.getElementById("logsBody");
     logContainer.innerText = "Querying environment descriptors...";
 
@@ -1157,107 +1100,177 @@ document.getElementById("infoBtn").addEventListener("click", async () => {
     }
 
     logContainer.innerHTML = logs;
-});
-
-document.getElementById("shareAppBtn").addEventListener("click", async () => {
-    haptic("short");
-    const shareData = {
-        title: "أذكار",
-        text: "أذكار: Adhkar, Duas, Quran, Hadith & Prayer Times",
-        url: location.href
-    };
-    try {
-        if (navigator.share) {
-            await navigator.share(shareData);
-        } else {
-            await navigator.clipboard.writeText(location.href);
-            showPopup("🔗 Link copied");
-        }
-    } catch (err) {
-        if (err.name !== "AbortError") showPopup("Share failed");
-    }
-});
-
-/* ================= HAPTICS ================= */
-function haptic(type) {
-    if (isIOS) {
-        const clickShort = document.getElementById("clickShort");
-        const clickLong = document.getElementById("clickLong");
-
-        if (type === "short") {
-            clickShort.currentTime = 0;
-            clickShort.play().catch(() => {});
-        }
-        if (type === "long") {
-            clickLong.currentTime = 0;
-            clickLong.play().catch(() => {});
-        }
-        if (type === "double") {
-            clickLong.currentTime = 0;
-            clickLong.play().catch(() => {});
-            setTimeout(() => {
-                clickLong.currentTime = 0;
-                clickLong.play().catch(() => {});
-            }, 200);
-        }
-    } else if (navigator.vibrate) {
-        if (type === "short") navigator.vibrate(40);
-        if (type === "long") navigator.vibrate(250);
-        if (type === "double") navigator.vibrate([200, 150, 200]);
-    }
 }
 
 /* ================= COUNTER / INSTALL ================= */
 let deferredPrompt;
 
-window.addEventListener('beforeinstallprompt', (e) => {
-    deferredPrompt = e;
-    counterBtn.innerText = "✨ Install App";
-    counterBtn.style.background = "#28a745";
-    counterBtn.style.color = "white";
+/* ================= EVENT WIRING ================= */
+/* Every listener is registered in its own safe() block so one failure cannot stop the rest. */
+
+safe("modals", () => {
+    document.getElementById("prayerBtn").addEventListener("click", () => {
+        openModal("prayerModal");
+        loadPrayerTimes();
+    });
+    document.getElementById("refreshPrayerBtn").addEventListener("click", () => {
+        haptic("short");
+        loadPrayerTimes();
+    });
+    document.getElementById("selectMethodBtn").addEventListener("click", () => {
+        haptic("short");
+        openMethodModal();
+    });
+    document.getElementById("hadithBtn").addEventListener("click", () => {
+        openModal("hadithModal");
+        loadHadith();
+    });
+    document.getElementById("newHadithBtn").addEventListener("click", () => {
+        haptic("short");
+        loadHadith();
+    });
+    document.getElementById("infoBtn").addEventListener("click", () => {
+        openModal("logsModal");
+        buildInfoLogs().catch(err => console.error(err));
+    });
+    document.getElementById("pdfViewerBtn").addEventListener("click", () => {
+        openModal("pdfModal");
+        loadPdfFile(currentPdfIndex);
+    });
+    document.getElementById("textViewerBtn").addEventListener("click", () => {
+        openModal("textModal");
+        loadTxtFile(currentTxtIndex);
+    });
 });
 
-counterBtn.addEventListener("click", async () => {
-    if (deferredPrompt) {
-        deferredPrompt.prompt();
-        await deferredPrompt.userChoice;
+safe("fontViewer", () => {
+    document.getElementById("changeFontBtn").addEventListener("click", () => {
+        fontIndex = (fontIndex + 1) % fontList.length;
+        localStorage.setItem("savedFontIndex", fontIndex);
+        applyFont();
+        haptic("short");
+        showPopup(`🔤 ${fontList[fontIndex].name}`);
+    });
+    document.getElementById("sizeDownBtn").addEventListener("click", () => changeSize(-2));
+    document.getElementById("sizeUpBtn").addEventListener("click", () => changeSize(2));
+    document.getElementById("invertColorsBtn").addEventListener("click", () => {
+        isDarkTheme = !isDarkTheme;
+        localStorage.setItem("savedDarkTheme", isDarkTheme ? "1" : "0");
+        applyTheme();
+        haptic("short");
+    });
+    document.getElementById("prevTxtBtn").addEventListener("click", () => {
+        loadTxtFile(currentTxtIndex - 1 < 0 ? txtFiles.length - 1 : currentTxtIndex - 1);
+    });
+    document.getElementById("nextTxtBtn").addEventListener("click", () => {
+        loadTxtFile(currentTxtIndex + 1 >= txtFiles.length ? 0 : currentTxtIndex + 1);
+    });
+    document.getElementById("prevPdfBtn").addEventListener("click", () => {
+        loadPdfFile(currentPdfIndex - 1 < 0 ? pdfFiles.length - 1 : currentPdfIndex - 1);
+    });
+    document.getElementById("nextPdfBtn").addEventListener("click", () => {
+        loadPdfFile(currentPdfIndex + 1 >= pdfFiles.length ? 0 : currentPdfIndex + 1);
+    });
+});
+
+safe("audioControls", () => {
+    document.getElementById("prevAudioBtn").addEventListener("click", () => {
+        loadTrack(currentAudioIndex - 1 < 0 ? audioFiles.length - 1 : currentAudioIndex - 1);
+    });
+    document.getElementById("nextAudioBtn").addEventListener("click", () => {
+        loadTrack(currentAudioIndex + 1 >= audioFiles.length ? 0 : currentAudioIndex + 1);
+    });
+    btn.addEventListener("click", () => {
+        if (audio.paused) {
+            audio.play().catch(() => showPopup("Tap again to allow audio"));
+            btn.innerText = "⏸";
+        } else {
+            audio.pause();
+            btn.innerText = "▶";
+        }
+    });
+    backBtn.addEventListener("click", () => {
+        audio.currentTime = Math.max(0, audio.currentTime - 5);
+    });
+    forwardBtn.addEventListener("click", () => {
+        if (!isFinite(audio.duration)) return;
+        audio.currentTime = Math.min(audio.duration, audio.currentTime + 5);
+    });
+    audio.addEventListener("timeupdate", updateAudioTime);
+    audio.addEventListener("loadedmetadata", updateAudioTime);
+});
+
+safe("share", () => {
+    document.getElementById("shareAppBtn").addEventListener("click", async () => {
+        haptic("short");
+        const shareData = {
+            title: "أذكار",
+            text: "أذكار: Adhkar, Duas, Quran, Hadith & Prayer Times",
+            url: location.href
+        };
+        try {
+            if (navigator.share) {
+                await navigator.share(shareData);
+            } else {
+                await navigator.clipboard.writeText(location.href);
+                showPopup("🔗 Link copied");
+            }
+        } catch (err) {
+            if (err.name !== "AbortError") showPopup("Share failed");
+        }
+    });
+});
+
+safe("counter", () => {
+    window.addEventListener('beforeinstallprompt', (e) => {
+        deferredPrompt = e;
+        counterBtn.innerText = "✨ Install App";
+        counterBtn.style.background = "#28a745";
+        counterBtn.style.color = "white";
+    });
+
+    counterBtn.addEventListener("click", async () => {
+        if (deferredPrompt) {
+            deferredPrompt.prompt();
+            await deferredPrompt.userChoice;
+            deferredPrompt = null;
+            counterBtn.innerText = count;
+            counterBtn.style.background = "grey";
+            counterBtn.style.color = "black";
+            return;
+        }
+
+        count++;
+        counterBtn.innerText = count;
+        localStorage.setItem("zikrCount", count);
+
+        if (count % 33 === 0) {
+            haptic("double");
+        } else if (count % 11 === 0) {
+            haptic("long");
+        } else {
+            haptic("short");
+        }
+    });
+
+    resetBtn.addEventListener("click", () => {
+        if (confirm("Reset the counter?")) {
+            count = 0;
+            counterBtn.innerText = 0;
+            localStorage.setItem("zikrCount", 0);
+            haptic("double");
+        }
+    });
+
+    window.addEventListener('appinstalled', () => {
         deferredPrompt = null;
         counterBtn.innerText = count;
         counterBtn.style.background = "grey";
         counterBtn.style.color = "black";
-        return;
-    }
-
-    count++;
-    counterBtn.innerText = count;
-    localStorage.setItem("zikrCount", count);
-
-    if (count % 33 === 0) {
-        haptic("double");
-    } else if (count % 11 === 0) {
-        haptic("long");
-    } else {
-        haptic("short");
-    }
+    });
 });
 
-resetBtn.addEventListener("click", () => {
-    if (confirm("Reset the counter?")) {
-        count = 0;
-        counterBtn.innerText = 0;
-        localStorage.setItem("zikrCount", 0);
-        haptic("double");
-    }
-});
-
-window.addEventListener('appinstalled', () => {
-    deferredPrompt = null;
-    counterBtn.innerText = count;
-    counterBtn.style.background = "grey";
-    counterBtn.style.color = "black";
-});
-
-/* ================= TELEMETRY (persistent ID, runs last) ================= */
+/* ================= TELEMETRY (persistent ID, runs last, never throws) ================= */
 const TELEMETRY_URL = "https://script.google.com/macros/s/AKfycbxXOgLEtYhaKzyMpWb-k_FJFJIuUWXVy7VoaOpE8vWnU_jQ9bvZsKO_nCdigZKsyGD62A/exec";
 
 function makeUuid() {
@@ -1278,7 +1291,7 @@ function getDeviceId() {
     return id;
 }
 
-// FNV-1a hash, used to turn stable traits into a short fingerprint
+// FNV-1a hash, turns stable traits into a short fingerprint
 function fnv1a(str) {
     let h = 0x811c9dc5;
     for (let i = 0; i < str.length; i++) {
@@ -1407,21 +1420,23 @@ async function sendTelemetry() {
         fetch(`${TELEMETRY_URL}?${params.toString()}`, { mode: "no-cors", keepalive: true })
             .catch(() => {});
     } catch (e) {
-        /* telemetry must never break the app */
+        console.warn("telemetry skipped:", e);
     }
 }
 
 /* ================= STARTUP ================= */
-loadTrack(0);
-updateHijriDisplay();
+safe("startupTrack", () => loadTrack(0));
+safe("startupHijri", () => updateHijriDisplay());
+safe("startupFont", () => { applyFont(); applyTheme(); });
 
-// Wait for full page load, fetch prayer times, then send telemetry last.
+// Wait for full page load, fetch prayer times silently, then send telemetry last.
 const pageReady = document.readyState === "complete"
     ? Promise.resolve()
     : new Promise(resolve => window.addEventListener("load", resolve, { once: true }));
 
 pageReady
     .then(() => loadPrayerTimes(true))
+    .catch(err => console.error("prayer load:", err))
     .finally(() => setTimeout(sendTelemetry, 0));
 </script>
 
