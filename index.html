@@ -1,3 +1,9 @@
+**Changed:**
+- Qibla, Hadith, Prayer moved into top bar. Emoji only, tooltips via `title`.
+- Title now `أذكار`.
+- Main-screen button row removed.
+
+```html
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -21,7 +27,6 @@
 
     h2 {
         margin-top: 70px;
-        text-transform: capitalize;
     }
 
     /* Top Navigation & Controls Bar */
@@ -35,8 +40,8 @@
         box-shadow: 0 2px 5px rgba(0,0,0,0.1);
         display: flex;
         align-items: center;
-        justify-content: space-between;
-        padding: 0 15px;
+        justify-content: center;
+        padding: 0 10px;
         box-sizing: border-box;
         z-index: 1000;
     }
@@ -58,7 +63,7 @@
     .nav-cluster {
         display: flex;
         align-items: center;
-        gap: 10px;
+        gap: 8px;
     }
 
     .nav-btn {
@@ -79,11 +84,20 @@
         border: none;
         background: #eee;
         cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        text-decoration: none;
+        box-sizing: border-box;
+        padding: 0;
     }
 
-    #infoBtn { background: #007bff; color: white; }
-    #textViewerBtn { background: #28a745; color: white; }
+    #qiblaBtn { background: #fd7e14; color: white; }
+    #hadithBtn { background: #17a2b8; color: white; }
+    #prayerBtn { background: #6f42c1; color: white; }
     #pdfViewerBtn { background: #dc3545; color: white; }
+    #textViewerBtn { background: #28a745; color: white; }
+    #infoBtn { background: #007bff; color: white; }
 
     .txt-ctrl {
         font-size: 16px;
@@ -96,40 +110,6 @@
         display: flex;
         align-items: center;
         gap: 4px;
-    }
-
-    /* Main screen action buttons */
-    .main-actions {
-        display: flex;
-        justify-content: center;
-        gap: 12px;
-        margin: 10px 0 15px;
-        flex-wrap: wrap;
-    }
-
-    .main-btn {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        width: 96px;
-        height: 84px;
-        border-radius: 16px;
-        border: none;
-        background: #fff;
-        box-shadow: 0 2px 6px rgba(0,0,0,0.12);
-        font-size: 28px;
-        color: #222;
-        text-decoration: none;
-        cursor: pointer;
-        box-sizing: border-box;
-    }
-
-    .main-btn span {
-        font-size: 14px;
-        font-weight: bold;
-        margin-top: 4px;
-        font-family: Arial, sans-serif;
     }
 
     /* Control Bar Container */
@@ -506,28 +486,21 @@
 
 <body>
 
-<!-- Top Control Area -->
+<!-- Top Control Area: Qibla | Hadith | Prayer | PDF | Text | About -->
 <div class="top-bar">
-    <div></div>
     <div class="nav-cluster">
+        <a class="action-btn" id="qiblaBtn" href="https://qiblafinder.withgoogle.com/intl/en/" target="_blank" rel="noopener" title="Qibla">🕋</a>
+        <button class="action-btn" id="hadithBtn" title="Hadith">🕌</button>
+        <button class="action-btn" id="prayerBtn" title="Prayer Times">🤲🏼</button>
         <button class="action-btn" id="pdfViewerBtn" title="PDF Viewer">📄</button>
         <button class="action-btn" id="textViewerBtn" title="Text Viewer">📖</button>
         <button class="action-btn" id="infoBtn" title="About & Info">ℹ</button>
     </div>
 </div>
 
-<h2 id="pageTitle">🕌 Adhkar 🕋</h2>
+<h2 id="pageTitle">أذكار</h2>
 <br>
 <div id="hijriDateDisplay">Loading Date...</div>
-
-<!-- Main Screen Action Buttons -->
-<div class="main-actions">
-    <a class="main-btn" href="https://qiblafinder.withgoogle.com/intl/en/" target="_blank" rel="noopener">
-        🕋<span>Qibla</span>
-    </a>
-    <button class="main-btn" id="hadithBtn">🕌<span>Hadith</span></button>
-    <button class="main-btn" id="prayerBtn">🤲🏼<span>Prayer</span></button>
-</div>
 <hr>
 
 <audio id="audioPlayer" preload="auto">
@@ -1112,8 +1085,8 @@ document.getElementById("infoBtn").addEventListener("click", async () => {
 document.getElementById("shareAppBtn").addEventListener("click", async () => {
     haptic("short");
     const shareData = {
-        title: "Adhkar",
-        text: "Adhkar: Adhkar, Duas, Quran, Hadith & Prayer Times",
+        title: "أذكار",
+        text: "أذكار: Adhkar, Duas, Quran, Hadith & Prayer Times",
         url: location.href
     };
     try {
@@ -1210,7 +1183,7 @@ window.addEventListener('appinstalled', () => {
 /* ================= STARTUP ================= */
 loadTrack(0);
 updateHijriDisplay();
-loadPrayerTimes(true); // silent: fetches times in background, no modal open
+loadPrayerTimes(true);
 </script>
 
 </body>
