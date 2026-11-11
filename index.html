@@ -779,12 +779,14 @@ function getLocation() {
     });
 }
 
-/* ================= PRAYER TIMES + CALCULATION METHOD (saved in localStorage) ================= */
-const METHOD_KEY = "prayerMethodSettings";   // one JSON entry: { id, name }
+/* ================= PRAYER TIMES + CALCULATION METHOD (saved in localStorage, like font/size) ================= */
+const METHOD_ID_KEY = "savedPrayerMethodId";      // "" = automatic
+const METHOD_NAME_KEY = "savedPrayerMethodName";
+const OLD_METHOD_KEY = "prayerMethodSettings";    // previous format, migrated once
 const DEFAULT_METHOD_NAME = "Default (auto)";
 
 let prayerMethod = "";        // "" = automatic (API default for the location)
-let prayerMethodName = "";
+let prayerMethodName = DEFAULT_METHOD_NAME;
 
 const PRAYER_LABELS = {
     imsak: "Imsak", fajr: "Fajr", sunrise: "Sunrise",
@@ -792,34 +794,31 @@ const PRAYER_LABELS = {
 };
 const PRAYER_ORDER = ["fajr", "sunrise", "dhuhr", "asr", "maghrib", "isha"];
 
-// Restore saved method. Also migrates the older two-key format.
+// Restore saved method at startup
 function loadSavedMethod() {
     try {
-        const raw = localStorage.getItem(METHOD_KEY);
-        if (raw) {
-            const s = JSON.parse(raw);
-            prayerMethod = s.id || "";
-            prayerMethodName = s.name || "";
-            return;
+        // Migrate old JSON entry once, if the new keys are not set yet
+        if (localStorage.getItem(METHOD_ID_KEY) === null) {
+            const raw = localStorage.getItem(OLD_METHOD_KEY);
+            if (raw) {
+                const s = JSON.parse(raw);
+                saveMethod(s.id || "", s.name || DEFAULT_METHOD_NAME);
+            }
         }
-        const oldId = localStorage.getItem("prayerMethod");
-        const oldName = localStorage.getItem("prayerMethodName");
-        if (oldId) {
-            prayerMethod = oldId;
-            prayerMethodName = oldName || oldId;
-            saveMethod(prayerMethod, prayerMethodName);
-        }
+        prayerMethod = localStorage.getItem(METHOD_ID_KEY) || "";
+        prayerMethodName = localStorage.getItem(METHOD_NAME_KEY) || DEFAULT_METHOD_NAME;
     } catch (e) {
         console.warn("could not read saved method:", e);
     }
 }
 
-// Save method to localStorage, so the choice survives reloads and new sessions
+// Save immediately on every choice, same as font and size
 function saveMethod(id, name) {
     prayerMethod = id;
     prayerMethodName = name;
     try {
-        localStorage.setItem(METHOD_KEY, JSON.stringify({ id, name }));
+        localStorage.setItem(METHOD_ID_KEY, id);
+        localStorage.setItem(METHOD_NAME_KEY, name);
     } catch (e) {
         console.warn("could not save method:", e);
     }
@@ -1384,4 +1383,3 @@ pageReady
 
 </body>
 </html>
-```
