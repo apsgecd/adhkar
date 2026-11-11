@@ -1,3 +1,6 @@
+**Changed:** The calculation method is now saved as one JSON entry (`prayerMethodSettings`) in `localStorage`. It is restored at startup, so the label shows the saved method before the prayer times load. The method list also has a "Default (auto)" option, and old saved keys are migrated automatically.
+
+```html
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -765,11 +768,12 @@ function getLocation() {
         navigator.geolocation.getCurrentPosition(
             pos => {
                 const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-                localStorage.setItem("lastLocation", JSON.stringify(loc));
+                try { localStorage.setItem("lastLocation", JSON.stringify(loc)); } catch (e) {}
                 resolve(loc);
             },
             () => {
-                const saved = localStorage.getItem("lastLocation");
+                let saved = null;
+                try { saved = localStorage.getItem("lastLocation"); } catch (e) {}
                 if (saved) resolve(JSON.parse(saved));
                 else reject(new Error("Location permission denied"));
             },
@@ -778,9 +782,12 @@ function getLocation() {
     });
 }
 
-/* ================= PRAYER TIMES ================= */
-let prayerMethod = localStorage.getItem("prayerMethod") || "";
-let prayerMethodName = localStorage.getItem("prayerMethodName") || "";
+/* ================= PRAYER TIMES + CALCULATION METHOD (saved in localStorage) ================= */
+const METHOD_KEY = "prayerMethodSettings";   // one JSON entry: { id, name }
+const DEFAULT_METHOD_NAME = "Default (auto)";
+
+let prayerMethod = "";        // "" = automatic (API default for the location)
+let prayerMethodName = "";
 
 const PRAYER_LABELS = {
     imsak: "Imsak", fajr: "Fajr", sunrise: "Sunrise",
@@ -788,8 +795,42 @@ const PRAYER_LABELS = {
 };
 const PRAYER_ORDER = ["fajr", "sunrise", "dhuhr", "asr", "maghrib", "isha"];
 
-function updateMethodLabel(fallbackId) {
-    const label = prayerMethodName || fallbackId || "Default";
+// Restore saved method. Also migrates the older two-key format.
+function loadSavedMethod() {
+    try {
+        const raw = localStorage.getItem(METHOD_KEY);
+        if (raw) {
+            const s = JSON.parse(raw);
+            prayerMethod = s.id || "";
+            prayerMethodName = s.name || "";
+            return;
+        }
+        const oldId = localStorage.getItem("prayerMethod");
+        const oldName = localStorage.getItem("prayerMethodName");
+        if (oldId) {
+            prayerMethod = oldId;
+            prayerMethodName = oldName || oldId;
+            saveMethod(prayerMethod, prayerMethodName);
+        }
+    } catch (e) {
+        console.warn("could not read saved method:", e);
+    }
+}
+
+// Save method to localStorage, so the choice survives reloads and new sessions
+function saveMethod(id, name) {
+    prayerMethod = id;
+    prayerMethodName = name;
+    try {
+        localStorage.setItem(METHOD_KEY, JSON.stringify({ id, name }));
+    } catch (e) {
+        console.warn("could not save method:", e);
+    }
+}
+
+function updateMethodLabel(apiMethodName) {
+    // Saved choice wins; otherwise show what the API used
+    const label = prayerMethod ? prayerMethodName : (apiMethodName || DEFAULT_METHOD_NAME);
     document.getElementById("methodCurrent").innerText = `Method: ${label}`;
 }
 
@@ -839,10 +880,18 @@ async function openMethodModal() {
         const methods = (json.data && json.data.methods) || {};
         const entries = Object.entries(methods);
         list.innerHTML = "";
-        if (!entries.length) {
-            list.innerText = "No methods found.";
-            return;
-        }
+
+        // Automatic option (clears the saved method)
+        const auto = document.createElement("button");
+        auto.className = "method-item" + (prayerMethod === "" ? " active" : "");
+        auto.innerHTML = `<div style="font-weight:bold">${DEFAULT_METHOD_NAME}</div><small>Uses the API default for your location</small>`;
+        auto.addEventListener("click", () => {
+            saveMethod("", DEFAULT_METHOD_NAME);
+            closeModal("methodModal");
+            loadPrayerTimes();
+        });
+        list.appendChild(auto);
+
         entries.forEach(([id, m]) => {
             const name = m.name || id;
 
@@ -858,10 +907,7 @@ async function openMethodModal() {
 
             b.append(title, desc);
             b.addEventListener("click", () => {
-                prayerMethod = id;
-                prayerMethodName = name;
-                localStorage.setItem("prayerMethod", prayerMethod);
-                localStorage.setItem("prayerMethodName", prayerMethodName);
+                saveMethod(id, name);
                 closeModal("methodModal");
                 loadPrayerTimes();
             });
@@ -871,6 +917,12 @@ async function openMethodModal() {
         list.innerText = `Failed: ${err.message}`;
     }
 }
+
+// Restore the saved method right away, so the label is correct before any fetch
+safe("restoreMethod", () => {
+    loadSavedMethod();
+    updateMethodLabel();
+});
 
 /* ================= HADITH ================= */
 function extractHadith(json) {
@@ -1270,8 +1322,8 @@ safe("counter", () => {
     });
 });
 
-/* ================= TELEMETRY (persistent ID, runs last, never throws) ================= */
-const TELEMETRY_URL = "https://script.google.com/macros/s/AKfycbzGZm8hWfHlay5vdd5_lMCvqf8I0lHMvw6oPnRl4zP7KXBdJgnjas6UDI-pnfaEVH_K7g/exec";
+/* ================= TELEMETRY (stable ID only, runs last, never throws) ================= */
+const TELEMETRY_URL = "https://script.google.com/macros/s/AKfycbxXOgLEtYhaKzyMpWb-k_FJFJIuUWXVy7VoaOpE8vWnU_jQ9bvZsKO_nCdigZKsyGD62A/exec";
 
 function makeUuid() {
     if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
@@ -1291,131 +1343,11 @@ function getDeviceId() {
     return id;
 }
 
-// FNV-1a hash, turns stable traits into a short fingerprint
-function fnv1a(str) {
-    let h = 0x811c9dc5;
-    for (let i = 0; i < str.length; i++) {
-        h ^= str.charCodeAt(i);
-        h = Math.imul(h, 0x01000193);
-    }
-    return (h >>> 0).toString(16).padStart(8, "0");
-}
-
-function getFingerprint() {
-    return fnv1a([
-        navigator.userAgent,
-        screen.width, screen.height, screen.colorDepth,
-        window.devicePixelRatio,
-        Intl.DateTimeFormat().resolvedOptions().timeZone,
-        navigator.language,
-        navigator.hardwareConcurrency,
-        navigator.deviceMemory,
-        navigator.maxTouchPoints
-    ].join("|"));
-}
-
-// iPhone: user agent never shows the model, so map screen size (CSS px) to model families
-const IPHONE_SCREENS = {
-    "320x568": "SE 1st gen / 5s",
-    "375x667": "6 / 6s / 7 / 8 / SE 2 / SE 3",
-    "414x736": "6+ / 6s+ / 7+ / 8+",
-    "375x812": "X / XS / 11 Pro / 12 mini / 13 mini",
-    "390x844": "12 / 12 Pro / 13 / 13 Pro / 14 / 16e",
-    "428x926": "12 Pro Max / 13 Pro Max / 14 Plus",
-    "393x852": "14 Pro / 15 / 15 Pro / 16",
-    "430x932": "14 Pro Max / 15 Plus / 15 Pro Max / 16 Plus",
-    "402x874": "16 Pro / 17",
-    "440x956": "16 Pro Max / 17 Pro Max",
-    "420x912": "Air"
-};
-
-function getBrowser(ua) {
-    const rules = [
-        [/EdgiOS\/([\d.]+)/, "Edge iOS"],
-        [/EdgA?\/([\d.]+)/, "Edge"],
-        [/CriOS\/([\d.]+)/, "Chrome iOS"],
-        [/FxiOS\/([\d.]+)/, "Firefox iOS"],
-        [/OPR\/([\d.]+)|OPiOS\/([\d.]+)/, "Opera"],
-        [/SamsungBrowser\/([\d.]+)/, "Samsung Internet"],
-        [/Firefox\/([\d.]+)/, "Firefox"],
-        [/Chrome\/([\d.]+)/, "Chrome"],
-        [/Version\/([\d.]+).*Safari/, "Safari"]
-    ];
-    for (const [re, name] of rules) {
-        const m = ua.match(re);
-        if (m) return `${name} ${(m[1] || m[2] || "").split(".")[0]}`.trim();
-    }
-    return "Unknown";
-}
-
-async function getDeviceInfo() {
-    const ua = navigator.userAgent;
-    const w = Math.min(screen.width, screen.height);
-    const h = Math.max(screen.width, screen.height);
-    const dpr = window.devicePixelRatio || 1;
-    const screenKey = `${w}x${h}`;
-
-    const info = {
-        os: "Unknown",
-        osVersion: "",
-        model: "",
-        browser: getBrowser(ua),
-        screen: `${screenKey}@${dpr}x`,
-        mode: (navigator.standalone === true || matchMedia("(display-mode: standalone)").matches)
-            ? "home-screen app" : "browser"
-    };
-
-    if (/iPhone|iPad|iPod/.test(ua)) {
-        const v = ua.match(/OS (\d+)[_.](\d+)/);
-        info.os = "iOS";
-        info.osVersion = v ? `${v[1]}.${v[2]}` : "";
-        if (/iPad/.test(ua)) {
-            info.model = "iPad";
-        } else {
-            let cand = IPHONE_SCREENS[screenKey];
-            if (screenKey === "414x896") cand = dpr === 2 ? "XR / 11" : "XS Max / 11 Pro Max";
-            info.model = cand ? `iPhone ${cand}` : "iPhone (unknown screen)";
-        }
-    } else if (/Android/.test(ua)) {
-        const v = ua.match(/Android ([\d.]+)/);
-        info.os = "Android";
-        info.osVersion = v ? v[1] : "";
-        const m = ua.match(/Android[^;]*;\s*([^;)]*?)\s*(?:Build|\))/);
-        info.model = m && m[1] ? m[1].trim() : "Android";
-    } else if (/Windows/.test(ua)) {
-        info.os = "Windows";
-    } else if (/Macintosh/.test(ua)) {
-        info.os = "macOS";
-    } else if (/Linux/.test(ua)) {
-        info.os = "Linux";
-    }
-
-    // Chromium-only: exact model and platform version (e.g. Samsung SM-S918B)
-    if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
-        try {
-            const hints = await navigator.userAgentData.getHighEntropyValues(["model", "platformVersion"]);
-            if (hints.model) info.model = hints.model;
-            if (hints.platformVersion && info.os === "Android") info.osVersion = hints.platformVersion;
-        } catch (e) { /* ignore */ }
-    }
-
-    if (!info.model) info.model = navigator.platform || "Unknown";
-    return info;
-}
-
-async function sendTelemetry() {
+function sendTelemetry() {
     try {
-        const info = await getDeviceInfo();
         const params = new URLSearchParams({
             timestamp: new Date().toISOString(),
-            deviceid: getDeviceId(),
-            devicemodal: info.model,
-            os: info.os,
-            osversion: info.osVersion,
-            browser: info.browser,
-            screen: info.screen,
-            mode: info.mode,
-            fp: getFingerprint()
+            deviceid: getDeviceId()
         });
         fetch(`${TELEMETRY_URL}?${params.toString()}`, { mode: "no-cors", keepalive: true })
             .catch(() => {});
@@ -1442,3 +1374,4 @@ pageReady
 
 </body>
 </html>
+```
