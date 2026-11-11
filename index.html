@@ -1,7 +1,7 @@
-**Changed:**
-- Qibla, Hadith, Prayer moved into top bar. Emoji only, tooltips via `title`.
-- Title now `أذكار`.
-- Main-screen button row removed.
+**Fixed:**
+- **Hijri overlap:** Layout now flows top to bottom. Audio controls sit in normal flow, and the counter fills the remaining space. Nothing is pinned by `bottom: Npx`, so nothing overlaps on small screens.
+- **PDF viewer:** Replaced iframe with PDF.js. Pages render as canvases in a scrollable container, fit to screen width.
+- **Dark mode, font, size:** Saved to `localStorage`, so they persist across reloads and sessions. Restored on startup.
 
 ```html
 <!DOCTYPE html>
@@ -17,19 +17,27 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Amiri&family=Cairo&family=Tajawal&family=Noto+Naskh+Arabic&family=Noto+Sans+Arabic&family=IBM+Plex+Sans+Arabic&family=Scheherazade+New&family=Lateef&family=Reem+Kufi&family=Lalezar&family=Harmattan&family=Markazi+Text&family=El+Messiri&family=Mada&family=Vazirmatn&display=swap" rel="stylesheet">
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+
     <style>
+    html, body { height: 100%; }
+
     body {
         margin: 0;
         font-family: Arial, sans-serif;
         text-align: center;
         background: #f5f5f5;
+        /* Flow layout: header, player, counter (fills rest). No fixed-bottom overlaps. */
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        height: 100dvh;
+        padding-top: 64px;
+        box-sizing: border-box;
+        overflow: hidden;
     }
 
-    h2 {
-        margin-top: 70px;
-    }
-
-    /* Top Navigation & Controls Bar */
+    /* Top bar */
     .top-bar {
         position: fixed;
         top: 0;
@@ -46,34 +54,10 @@
         z-index: 1000;
     }
 
-    #hijriDateDisplay {
-        font-size: 16px;
-        font-weight: bold;
-        color: #555;
-        background: rgba(255, 255, 255, 0.8);
-        display: inline-block;
-        padding: 6px 16px;
-        border-radius: 15px;
-        margin-top: -10px;
-        margin-bottom: 15px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-        direction: rtl;
-    }
-
     .nav-cluster {
         display: flex;
         align-items: center;
         gap: 8px;
-    }
-
-    .nav-btn {
-        width: 40px;
-        height: 40px;
-        font-size: 18px;
-        border-radius: 50%;
-        border: 1px solid #ccc;
-        background: #fff;
-        cursor: pointer;
     }
 
     .action-btn {
@@ -99,25 +83,50 @@
     #textViewerBtn { background: #28a745; color: white; }
     #infoBtn { background: #007bff; color: white; }
 
-    .txt-ctrl {
-        font-size: 16px;
-        border-radius: 5px;
-        width: auto;
-        padding: 5px 10px;
+    .nav-btn {
+        width: 40px;
+        height: 40px;
+        font-size: 18px;
+        border-radius: 50%;
+        border: 1px solid #ccc;
+        background: #fff;
+        cursor: pointer;
     }
 
-    .size-group {
+    /* Header */
+    .header {
+        flex-shrink: 0;
+        padding: 4px 10px 0;
+    }
+
+    h2 {
+        margin: 4px 0 6px;
+        font-size: clamp(20px, 5vw, 28px);
+    }
+
+    #hijriDateDisplay {
+        display: inline-block;
+        font-size: 15px;
+        font-weight: bold;
+        color: #555;
+        background: rgba(255, 255, 255, 0.9);
+        padding: 5px 14px;
+        border-radius: 15px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        direction: rtl;
+    }
+
+    /* Player block (in flow) */
+    .player {
+        flex-shrink: 0;
         display: flex;
+        flex-direction: column;
         align-items: center;
-        gap: 4px;
+        gap: 8px;
+        padding: 8px 10px 4px;
     }
 
-    /* Control Bar Container */
     #controlBar {
-        position: fixed;
-        bottom: 495px;
-        left: 50%;
-        transform: translateX(-50%);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -126,7 +135,6 @@
         padding: 6px 16px;
         border-radius: 30px;
         box-shadow: 0 2px 8px rgba(0,0,0,0.12);
-        z-index: 100;
     }
 
     .separator {
@@ -136,12 +144,7 @@
         margin: 0 2px;
     }
 
-    /* Track name & time display */
     #audioTimeDisplay {
-        position: fixed;
-        bottom: 445px;
-        left: 50%;
-        transform: translateX(-50%);
         font-size: 16px;
         font-weight: bold;
         color: #222;
@@ -149,173 +152,55 @@
         padding: 6px 18px;
         border-radius: 20px;
         box-shadow: 0 2px 6px rgba(0,0,0,0.12);
-        z-index: 100;
         letter-spacing: 0.5px;
         white-space: nowrap;
         text-transform: capitalize;
     }
 
-    /* Play Button */
+    .playback {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+    }
+
+    #backBtn, #forwardBtn {
+        width: 60px;
+        height: 60px;
+        border-radius: 50%;
+        background: #444;
+        color: white;
+        font-size: 24px;
+        border: none;
+        cursor: pointer;
+    }
+
     #toggleBtn {
-        position: fixed;
-        bottom: 345px;
-        left: 50%;
-        transform: translateX(-50%);
-        width: 85px;
-        height: 85px;
+        width: 80px;
+        height: 80px;
         border-radius: 50%;
         background: red;
         color: white;
-        font-size: 45px;
+        font-size: 40px;
         border: none;
-        z-index: 100;
+        cursor: pointer;
     }
 
-    /* Back 5 sec */
-    #backBtn {
-        position: fixed;
-        bottom: 345px;
-        left: calc(50% - 105px);
-        width: 65px;
-        height: 65px;
-        border-radius: 50%;
-        background: #444;
-        color: white;
-        font-size: 28px;
-        border: none;
-        z-index: 100;
-    }
-
-    /* Forward 5 sec */
-    #forwardBtn {
-        position: fixed;
-        bottom: 345px;
-        left: calc(50% + 40px);
-        width: 65px;
-        height: 65px;
-        border-radius: 50%;
-        background: #444;
-        color: white;
-        font-size: 28px;
-        border: none;
-        z-index: 100;
-    }
-
-    .modal-full {
-        display: none;
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100vw;
-        height: 100vh;
-        background: #ffffff;
-        z-index: 2000;
-        box-sizing: border-box;
-    }
-
-    .modal-content-full {
-        width: 100%;
-        height: 100%;
-        display: flex;
-        flex-direction: column;
-        padding: env(safe-area-inset-top, 15px) 15px env(safe-area-inset-bottom, 15px) 15px;
-        box-sizing: border-box;
-        background: inherit;
-    }
-
-    .modal-header-full {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding-bottom: 10px;
-        border-bottom: 1px solid #ccc;
-        background: inherit;
-        flex-wrap: wrap;
-        gap: 8px;
-    }
-
-    .modal-header-full h3 {
-        margin: 0;
-        font-size: 18px;
-    }
-
-    .control-cluster {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        flex-wrap: wrap;
-    }
-
-    /* Dark Mode */
-    .dark-mode-view {
-        background: #121212 !important;
-        color: #f0f0f0 !important;
-    }
-    .dark-mode-view .modal-body-full {
-        background: #1e1e1e !important;
-        color: #f0f0f0 !important;
-        border-color: #333;
-    }
-    .dark-mode-view button {
-        background: #333 !important;
-        color: #fff !important;
-        border-color: #555 !important;
-    }
-    .dark-mode-view .close-btn {
-        background: #b22222 !important;
-    }
-
-    .modal-body-full {
-        overflow-y: auto;
-        flex-grow: 1;
-        white-space: pre-wrap;
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        font-size: 22px;
-        line-height: 1.7;
-        background: #fafafa;
-        padding: 15px;
-        margin-top: 10px;
-        border: 1px solid #e0e0e0;
-        border-radius: 8px;
-        direction: rtl;
-        text-align: right;
-        -webkit-overflow-scrolling: touch;
-    }
-
-    .pdf-body-full {
-        flex-grow: 1;
-        width: 100%;
-        height: 100%;
-        margin-top: 10px;
-        border: 1px solid #e0e0e0;
-        border-radius: 8px;
-        background: #525659;
-    }
-
-    .pdf-frame {
-        width: 100%;
-        height: 100%;
-        border: none;
-        border-radius: 8px;
-    }
-
-    /* Counter Button */
+    /* Counter fills remaining space, never overlaps */
     #counterBtn {
-        position: fixed;
-        bottom: calc(env(safe-area-inset-bottom));
-        left: 50%;
-        transform: translateX(-50%);
+        flex: 1 1 auto;
+        min-height: 90px;
         width: 100%;
-        height: 300px;
         font-size: 40px;
         background: grey;
         color: black;
         border: none;
+        cursor: pointer;
         transition: background 0.3s ease;
-        z-index: 1;
+        box-sizing: border-box;
     }
 
-    /* Modals / Overlays */
+    /* Modals */
     .modal {
         display: none;
         position: fixed;
@@ -398,6 +283,16 @@
         cursor: pointer;
     }
 
+    .close-btn {
+        background: #dc3545;
+        color: white;
+        border: none;
+        padding: 5px 15px;
+        border-radius: 5px;
+        font-size: 16px;
+        cursor: pointer;
+    }
+
     .prayer-row {
         display: flex;
         justify-content: space-between;
@@ -439,22 +334,145 @@
         margin: 0 0 10px;
     }
 
-    .close-btn {
-        background: #dc3545;
-        color: white;
-        border: none;
-        padding: 5px 15px;
-        border-radius: 5px;
+    /* Full-screen viewers (text + PDF) */
+    .modal-full {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        height: 100dvh;
+        background: #ffffff;
+        z-index: 2000;
+        box-sizing: border-box;
+    }
+
+    .modal-content-full {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        padding: env(safe-area-inset-top, 15px) 15px env(safe-area-inset-bottom, 15px) 15px;
+        box-sizing: border-box;
+        background: inherit;
+        min-height: 0;
+    }
+
+    .modal-header-full {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding-bottom: 10px;
+        border-bottom: 1px solid #ccc;
+        flex-wrap: wrap;
+        gap: 8px;
+        flex-shrink: 0;
+    }
+
+    .modal-header-full h3 {
+        margin: 0;
+        font-size: 18px;
+    }
+
+    .control-cluster {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+
+    .txt-ctrl {
         font-size: 16px;
+        border-radius: 5px;
+        width: auto;
+        padding: 5px 10px;
+    }
+
+    .size-group {
+        display: flex;
+        align-items: center;
+        gap: 4px;
     }
 
     .txt-nav {
         display: flex;
         gap: 10px;
-        margin-bottom: 10px;
+        margin: 10px 0 0;
+        justify-content: center;
+        flex-shrink: 0;
     }
 
-    /* Popup message (replaces alert) */
+    .modal-body-full {
+        overflow-y: auto;
+        flex-grow: 1;
+        white-space: pre-wrap;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        font-size: 22px;
+        line-height: 1.7;
+        background: #fafafa;
+        padding: 15px;
+        margin-top: 10px;
+        border: 1px solid #e0e0e0;
+        border-radius: 8px;
+        direction: rtl;
+        text-align: right;
+        -webkit-overflow-scrolling: touch;
+        min-height: 0;
+    }
+
+    /* PDF viewer: PDF.js canvases in a scrollable container */
+    .pdf-body-full {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        touch-action: pan-y;
+        background: #525659;
+        border-radius: 8px;
+        padding: 8px;
+        margin-top: 10px;
+        box-sizing: border-box;
+    }
+
+    .pdf-body-full canvas {
+        display: block;
+        width: 100%;
+        height: auto;
+        margin: 0 auto 8px;
+        background: #fff;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+    }
+
+    .pdf-msg {
+        color: #fff;
+        padding: 20px;
+        font-size: 16px;
+    }
+
+    /* Dark mode */
+    .dark-mode-view {
+        background: #121212 !important;
+        color: #f0f0f0 !important;
+    }
+    .dark-mode-view .modal-body-full {
+        background: #1e1e1e !important;
+        color: #f0f0f0 !important;
+        border-color: #333;
+    }
+    .dark-mode-view button {
+        background: #333 !important;
+        color: #fff !important;
+        border-color: #555 !important;
+    }
+    .dark-mode-view .close-btn {
+        background: #b22222 !important;
+    }
+    .dark-mode-view .modal-header-full {
+        border-color: #333;
+    }
+
+    /* Popup (replaces alert) */
     .font-popup {
         position: fixed;
         left: 50%;
@@ -498,34 +516,40 @@
     </div>
 </div>
 
-<h2 id="pageTitle">أذكار</h2>
-<br>
-<div id="hijriDateDisplay">Loading Date...</div>
-<hr>
-
-<audio id="audioPlayer" preload="auto">
-    <source id="audioSource" src="haddad.mp3" type="audio/mpeg">
-</audio>
-
-<audio id="clickShort" src="click.mp3" preload="auto"></audio>
-<audio id="clickLong" src="longclick.mp3" preload="auto"></audio>
-
-<!-- Control Bar Container -->
-<div id="controlBar">
-    <button class="nav-btn" id="prevAudioBtn">◀</button>
-    <button class="nav-btn" id="nextAudioBtn">▶</button>
-    <div class="separator"></div>
-    <button class="action-btn" id="resetBtn" title="Reset Counter">📿</button>
+<!-- Header: title + Hijri date -->
+<div class="header">
+    <h2 id="pageTitle">أذكار</h2>
+    <div id="hijriDateDisplay">Loading Date...</div>
 </div>
 
-<!-- Track name & time display -->
-<div id="audioTimeDisplay">⏳ loading | 00:00 / 00:00</div>
+<!-- Audio elements (hidden, still play) -->
+<div style="display:none">
+    <audio id="audioPlayer" preload="auto">
+        <source id="audioSource" src="haddad.mp3" type="audio/mpeg">
+    </audio>
+    <audio id="clickShort" src="click.mp3" preload="auto"></audio>
+    <audio id="clickLong" src="longclick.mp3" preload="auto"></audio>
+</div>
 
-<!-- Player Controls -->
-<button id="backBtn">⏪</button>
-<button id="toggleBtn">▶</button>
-<button id="forwardBtn">⏩</button>
+<!-- Player block (in flow) -->
+<div class="player">
+    <div id="controlBar">
+        <button class="nav-btn" id="prevAudioBtn">◀</button>
+        <button class="nav-btn" id="nextAudioBtn">▶</button>
+        <div class="separator"></div>
+        <button class="action-btn" id="resetBtn" title="Reset Counter">📿</button>
+    </div>
 
+    <div id="audioTimeDisplay">⏳ loading | 00:00 / 00:00</div>
+
+    <div class="playback">
+        <button id="backBtn">⏪</button>
+        <button id="toggleBtn">▶</button>
+        <button id="forwardBtn">⏩</button>
+    </div>
+</div>
+
+<!-- Counter (fills remaining space) -->
 <button id="counterBtn">0</button>
 
 <!-- About / Info Modal (ℹ) -->
@@ -599,7 +623,7 @@
             </div>
         </div>
 
-        <div class="txt-nav" style="margin-top: 10px; display: flex; gap: 10px; justify-content: center;">
+        <div class="txt-nav">
             <button class="nav-btn" id="prevTxtBtn">◀</button>
             <button class="nav-btn" id="nextTxtBtn">▶</button>
         </div>
@@ -618,14 +642,12 @@
             </div>
         </div>
 
-        <div class="txt-nav" style="margin-top: 10px; display: flex; gap: 10px; justify-content: center;">
+        <div class="txt-nav">
             <button class="nav-btn" id="prevPdfBtn">◀</button>
             <button class="nav-btn" id="nextPdfBtn">▶</button>
         </div>
 
-        <div class="pdf-body-full">
-            <iframe id="pdfFrame" class="pdf-frame" src=""></iframe>
-        </div>
+        <div id="pdfPages" class="pdf-body-full"></div>
     </div>
 </div>
 
@@ -838,7 +860,7 @@ document.getElementById("newHadithBtn").addEventListener("click", () => {
     loadHadith();
 });
 
-/* ================= FONTS & TEXT VIEWER ================= */
+/* ================= FONTS, SIZE, THEME (saved in browser) ================= */
 const fontList = [
     { name: "Segoe UI", css: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif" },
     { name: "Traditional Arabic", css: "'Traditional Arabic', 'Times New Roman', serif" },
@@ -863,18 +885,28 @@ const fontList = [
 const MIN_FONT_SIZE = 14;
 const MAX_FONT_SIZE = 40;
 
-let fontIndex = parseInt(localStorage.getItem("savedFontIndex") || 0);
+let fontIndex = parseInt(localStorage.getItem("savedFontIndex") || "0", 10);
 if (isNaN(fontIndex) || fontIndex < 0 || fontIndex >= fontList.length) fontIndex = 0;
-let fontSize = parseInt(localStorage.getItem("savedFontSize") || 22);
+
+let fontSize = parseInt(localStorage.getItem("savedFontSize") || "22", 10);
 if (isNaN(fontSize)) fontSize = 22;
 
+let isDarkTheme = localStorage.getItem("savedDarkTheme") === "1";
+
 const textTarget = document.getElementById("textBody");
+const textModalEl = document.getElementById("textModal");
 
 function applyFont() {
     textTarget.style.setProperty("font-family", fontList[fontIndex].css, "important");
     textTarget.style.setProperty("font-size", fontSize + "px", "important");
 }
+
+function applyTheme() {
+    textModalEl.classList.toggle("dark-mode-view", isDarkTheme);
+}
+
 applyFont();
+applyTheme();
 
 document.getElementById("changeFontBtn").addEventListener("click", () => {
     fontIndex = (fontIndex + 1) % fontList.length;
@@ -895,10 +927,10 @@ function changeSize(delta) {
 document.getElementById("sizeDownBtn").addEventListener("click", () => changeSize(-2));
 document.getElementById("sizeUpBtn").addEventListener("click", () => changeSize(2));
 
-let isDarkTheme = false;
 document.getElementById("invertColorsBtn").addEventListener("click", () => {
     isDarkTheme = !isDarkTheme;
-    document.getElementById("textModal").classList.toggle("dark-mode-view", isDarkTheme);
+    localStorage.setItem("savedDarkTheme", isDarkTheme ? "1" : "0");
+    applyTheme();
     haptic("short");
 });
 
@@ -939,7 +971,7 @@ let currentPdfIndex = 0;
 
 const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
 
-let count = parseInt(localStorage.getItem("zikrCount") || 0);
+let count = parseInt(localStorage.getItem("zikrCount") || "0", 10);
 counterBtn.innerText = count;
 
 function formatTime(seconds) {
@@ -1030,12 +1062,60 @@ document.getElementById("textViewerBtn").addEventListener("click", () => {
     loadTxtFile(currentTxtIndex);
 });
 
-/* ================= PDF VIEWER ================= */
-function loadPdfFile(index) {
+/* ================= PDF VIEWER (PDF.js, scrollable) ================= */
+if (window.pdfjsLib) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+}
+
+let pdfRenderToken = 0;
+
+async function loadPdfFile(index) {
     currentPdfIndex = index;
-    const currentFile = pdfFiles[currentPdfIndex];
-    document.getElementById("pdfFileName").innerText = currentFile.replace('pdf/', '');
-    document.getElementById("pdfFrame").src = currentFile;
+    const file = pdfFiles[currentPdfIndex];
+    document.getElementById("pdfFileName").innerText = file.replace('pdf/', '');
+
+    const container = document.getElementById("pdfPages");
+    container.scrollTop = 0;
+    container.innerHTML = '<div class="pdf-msg">⏳ Loading PDF...</div>';
+
+    const token = ++pdfRenderToken;
+
+    if (!window.pdfjsLib) {
+        container.innerHTML = `<div class="pdf-msg">PDF engine failed to load. Check internet connection.</div>`;
+        return;
+    }
+
+    try {
+        const doc = await pdfjsLib.getDocument(file).promise;
+        if (token !== pdfRenderToken) return;
+
+        container.innerHTML = "";
+        const dpr = window.devicePixelRatio || 1;
+        const targetWidth = Math.max(200, container.clientWidth - 16);
+
+        for (let n = 1; n <= doc.numPages; n++) {
+            const page = await doc.getPage(n);
+            if (token !== pdfRenderToken) return;
+
+            const base = page.getViewport({ scale: 1 });
+            const scale = (targetWidth * dpr) / base.width;
+            const vp = page.getViewport({ scale });
+
+            const canvas = document.createElement("canvas");
+            canvas.width = Math.floor(vp.width);
+            canvas.height = Math.floor(vp.height);
+
+            await page.render({ canvasContext: canvas.getContext("2d"), viewport: vp }).promise;
+            if (token !== pdfRenderToken) return;
+
+            container.appendChild(canvas);
+        }
+    } catch (err) {
+        if (token === pdfRenderToken) {
+            container.innerHTML = `<div class="pdf-msg">Failed to load PDF: ${file}<br>${err.message}</div>`;
+        }
+    }
 }
 
 document.getElementById("prevPdfBtn").addEventListener("click", () => {
