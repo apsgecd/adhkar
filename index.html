@@ -1125,7 +1125,7 @@ async function buildInfoLogs() {
     const logContainer = document.getElementById("logsBody");
     logContainer.innerText = "Querying environment descriptors...";
 
-    let logs = `Designed by : <h1><b>Jaleel1618</b></h1><br> 🕋 : Qibla finder<br>✨: Hadith<br>🕌: Prayer Times<br>📄: PDF files <br> 📖: text files <br><br> ▶ :next audio <br> 📿 : reset counter <br> ⏩: skip 5sec audio<br>[System Parameters]<br>Timestamp: ${new Date().toISOString()}<br>Platform OS Target: ${navigator.platform}<br>IOS Device Flag: ${isIOS}<br>ServiceWorker Active: ${'serviceWorker' in navigator && !!navigator.serviceWorker.controller}<br><br>`;
+    let logs = `Designed by : <h1><b>Jaleel1618</b></h1><br><br><b><i><u>Icon names:</b></i></u><br><hr>🕋 : Qibla finder<br>✨ : Hadith<br>🕌 : Prayer Times<br>📄 : PDF files <br> 📖 : text files <br><br> ▶ :next audio <br> 📿 : reset counter<br> ⏩ : skip 5 seconds audio<br><br><hr>[System Parameters]<br>Timestamp: ${new Date().toISOString()}<br>Platform OS Target: ${navigator.platform}<br>IOS Device Flag: ${isIOS}<br>ServiceWorker Active: ${'serviceWorker' in navigator && !!navigator.serviceWorker.controller}<br><br>`;
 
     if ('caches' in window) {
         logs += `[Cache Storage Subsystem]<br>`;
