@@ -15,7 +15,36 @@
 
     <style>
     html, body { height: 100%; }
-
+/* Icon label bubble */
+.icon-bubble {
+    position: fixed;
+    top: 68px;
+    transform: translate(-50%, -4px) scale(0.9);
+    background: rgba(0, 0, 0, 0.85);
+    color: #fff;
+    padding: 6px 12px;
+    border-radius: 12px;
+    font-size: 14px;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease, transform 0.25s ease;
+    z-index: 1100;
+}
+.icon-bubble.show {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+}
+.icon-bubble::before {
+    content: "";
+    position: absolute;
+    top: -6px;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 6px solid transparent;
+    border-top: none;
+    border-bottom-color: rgba(0, 0, 0, 0.85);
+}
     body {
         margin: 0;
         font-family: Arial, sans-serif;
@@ -1364,7 +1393,42 @@ function sendTelemetry() {
         console.warn("telemetry skipped:", e);
     }
 }
+/* ================= TOP BAR ICON LABELS (3s bubble, cycles) ================= */
+safe("iconBubbleCycle", () => {
+    const items = [
+        { id: "qiblaBtn",      label: "Qibla" },
+        { id: "hadithBtn",     label: "Hadith" },
+        { id: "prayerBtn",     label: "Prayer Times" },
+        { id: "pdfViewerBtn",  label: "PDF Viewer" },
+        { id: "textViewerBtn", label: "Text Viewer" },
+        { id: "infoBtn",       label: "About & Info" }
+    ];
 
+    const bubble = document.createElement("div");
+    bubble.className = "icon-bubble";
+    document.body.appendChild(bubble);
+
+    let index = 0;
+
+    function showNext() {
+        const item = items[index];
+        const el = document.getElementById(item.id);
+        if (el) {
+            const r = el.getBoundingClientRect();
+            bubble.textContent = item.label;
+            bubble.style.left = (r.left + r.width / 2) + "px";
+            bubble.classList.add("show");
+        }
+
+        setTimeout(() => {
+            bubble.classList.remove("show");
+            index = (index + 1) % items.length;
+            setTimeout(showNext, 300);   // short gap before next label
+        }, 3000);                         // label stays 3 seconds
+    }
+
+    setTimeout(showNext, 1000);           // start 1 second after load
+});
 /* ================= STARTUP ================= */
 safe("startupTrack", () => loadTrack(0));
 safe("startupHijri", () => updateHijriDisplay());
