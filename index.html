@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Amiri&family=Cairo&family=Tajawal&family=Noto+Naskh+Arabic&family=Noto+Sans+Arabic&family=IBM+Plex+Sans+Arabic&family=Scheherazade+New&family=Lateef&family=Reem+Kufi&family=Lalezar&family=Harmattan&family=Markazi+Text&family=El+Messiri&family=Mada&family=Vazirmatn&display=swap" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Amiri&family=Cairo&...&family=Vazirmatn&family=Orbitron:wght@700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Amiri&family=Cairo&...&family=Vazirmatn&family=Orbitron:wght@700&family=Oswald:wght@700&display=swap" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 
     <style>
@@ -231,14 +231,24 @@
         max-height: 40vh;
         max-height: 40dvh;
         margin-top: auto;
-        font-family: 'Orbitron', monospace;
+        font-family: 'Oswald', 'Arial Narrow', sans-serif;
         font-weight: 700;
-        font-size: 72px;
-        background: #262626;
-        color: #E3E3E3;
+        font-size: 120px;
+        line-height: 1;
+        color: #f5f5f5;
+        background:
+        linear-gradient(to bottom,
+            transparent 48%,
+            #000 48%,
+            #000 52%,
+            transparent 52%),
+        linear-gradient(to bottom, #2a2a2a 0%, #151515 50%, #1e1e1e 100%);
+        text-shadow: 0 2px 4px rgba(0, 0, 0, 0.6);
         border: none;
+        border-radius: 0;
         cursor: pointer;
         transition: background 0.3s ease;
+        box-sizing: border-box;
         box-sizing: border-box;
     }
 
