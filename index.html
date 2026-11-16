@@ -460,11 +460,6 @@
         flex-shrink: 0;
     }
 
-    .nav-btn-round {
-        width: 40px;
-        height: 40px;
-    }
-
     .modal-body-full {
         overflow-y: auto;
         flex-grow: 1;
@@ -1056,7 +1051,6 @@ async function openMethodModal() {
     openModal("methodModal");
     const list = document.getElementById("methodList");
 
-    // Show saved list first, if any
     const cachedMethods = readCache(METHODS_CACHE_KEY);
     if (cachedMethods && Object.keys(cachedMethods).length) {
         renderMethodList(cachedMethods);
@@ -1339,7 +1333,7 @@ async function buildInfoLogs() {
     logContainer.innerHTML = logs;
 }
 
-/* ================= ICON LABEL CYCLE (Malayalam, starts on any button click) ================= */
+/* ================= ICON LABEL CYCLE (Malayalam, auto-starts on load, stops on any button press) ================= */
 const CYCLE_ITEMS = [
     { id: "qiblaBtn",      label: "ഖിബ്‌ല ദിശ",              bg: "rgba(253, 126, 20, 0.6)" },
     { id: "hadithBtn",     label: "ഹദീസ്",                    bg: "rgba(23, 162, 184, 0.6)" },
@@ -1356,24 +1350,47 @@ const CYCLE_ITEMS = [
     { id: "counterBtn",    label: "തസ്ബീഹ് കൗണ്ടർ",           bg: "rgba(128, 128, 128, 0.6)", pos: "above", zoom: false }
 ];
 
-let cycleBubble = null;
-let cycleRunning = false;
+const cycle = {
+    active: false,     // cycle is running
+    stopped: false,    // user pressed a button, never restart
+    timers: [],
+    bubble: null,
+    zoomEl: null
+};
+
+function cycleAfter(fn, ms) {
+    const t = setTimeout(fn, ms);
+    cycle.timers.push(t);
+}
+
+function stopIconCycle() {
+    cycle.stopped = true;
+    cycle.active = false;
+    cycle.timers.forEach(clearTimeout);
+    cycle.timers = [];
+    if (cycle.bubble) cycle.bubble.classList.remove("show");
+    if (cycle.zoomEl) {
+        cycle.zoomEl.classList.remove("icon-zoom");
+        cycle.zoomEl = null;
+    }
+}
 
 function runIconCycle() {
-    if (cycleRunning) return;
-    cycleRunning = true;
+    if (cycle.active || cycle.stopped) return;
+    cycle.active = true;
 
-    if (!cycleBubble) {
-        cycleBubble = document.createElement("div");
-        cycleBubble.className = "icon-bubble";
-        document.body.appendChild(cycleBubble);
+    if (!cycle.bubble) {
+        cycle.bubble = document.createElement("div");
+        cycle.bubble.className = "icon-bubble";
+        document.body.appendChild(cycle.bubble);
     }
-    const bubble = cycleBubble;
+    const bubble = cycle.bubble;
     let index = 0;
 
     function showNext() {
+        if (!cycle.active) return;
         if (index >= CYCLE_ITEMS.length) {
-            cycleRunning = false;
+            cycle.active = false;
             return;
         }
 
@@ -1381,13 +1398,11 @@ function runIconCycle() {
         const el = document.getElementById(item.id);
         if (!el) {
             index++;
-            showNext();
-            return;
+            return showNext();
         }
 
         const r = el.getBoundingClientRect();
         const above = item.pos === "above";
-        let zoomed = false;
 
         bubble.textContent = item.label;
         bubble.style.setProperty("--bubble-bg", item.bg);
@@ -1402,22 +1417,35 @@ function runIconCycle() {
             bubble.style.top = (r.bottom + 8) + "px";
         }
 
+        let zoomed = false;
         if (item.zoom !== false) {
             el.classList.add("zoomable", "icon-zoom");
+            cycle.zoomEl = el;
             zoomed = true;
         }
         bubble.classList.add("show");
 
-        setTimeout(() => {
+        cycleAfter(() => {
+            if (!cycle.active) return;
             bubble.classList.remove("show");
-            if (zoomed) el.classList.remove("icon-zoom");
+            if (zoomed) {
+                el.classList.remove("icon-zoom");
+                cycle.zoomEl = null;
+            }
             index++;
-            setTimeout(showNext, 300);
+            cycleAfter(showNext, 300);
         }, 3000);
     }
 
-    showNext();
+    cycleAfter(showNext, 1000);
 }
+
+// Any button press stops the label cycle for good
+safe("iconCycleStop", () => {
+    document.addEventListener("pointerdown", (e) => {
+        if (e.target.closest("button, a")) stopIconCycle();
+    }, true);
+});
 
 /* ================= EVENT WIRING ================= */
 /* Every listener is registered in its own safe() block so one failure cannot stop the rest. */
@@ -1448,16 +1476,6 @@ safe("modals", () => {
     document.getElementById("textViewerBtn").addEventListener("click", () => {
         openModal("textModal");
         loadTxtFile(currentTxtIndex);
-    });
-});
-
-// Any button on the main screen starts the label cycle
-safe("iconCycleTrigger", () => {
-    document.addEventListener("click", (e) => {
-        const el = e.target.closest("button, a");
-        if (!el) return;
-        if (el.closest(".modal, .modal-full")) return;
-        runIconCycle();
     });
 });
 
@@ -1637,7 +1655,7 @@ function sendTelemetry() {
     }
 }
 
-/* ================= STARTUP (no location request, no icon cycle) ================= */
+/* ================= STARTUP (no location request on load) ================= */
 safe("startupTrack", () => loadTrack(0));
 safe("startupHijri", () => updateHijriDisplay());
 safe("startupFont", () => { applyFont(); applyTheme(); });
@@ -1648,6 +1666,8 @@ safe("startupPrayerCache", () => {
     const cached = readCache(PRAYER_CACHE_KEY);
     if (cached) renderPrayer(cached.json, "Saved times");
 });
+
+safe("startIconCycle", () => runIconCycle());
 
 // Telemetry last, after the page has fully loaded
 if (document.readyState === "complete") {
